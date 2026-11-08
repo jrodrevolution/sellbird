@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll the SSS GLM request channel
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=20s
+AccuracySec=5s
+Persistent=false
+Unit=sss-glm-worker.service
+
+[Install]
+WantedBy=timers.target

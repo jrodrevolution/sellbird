@@ -1,0 +1,15 @@
+{
+  "manifest.json": "0b44fd0cab4c7e9be903f9e5634c26f70f6dba6e8d425eb57575349ee967d8aa",
+  "README.md": "36fa6a0a8da49e6afe6233288b09a359878be44952cd9cf6c88c9d7a81e01741",
+  "deployment-summary.json": "0cbc3adfa3c64b566aeaea3543b948e3b77c71e00552fa4bdba5f3c46c4e1ae6",
+  "redaction-report.json": "cadd99fac4977c86b6981fdc1a9ee57db88ba6a0cf8aab462c582bbb33c46c94",
+  "scan-report.json": "8ac500658bb03bb0e6acfc4214d75bb5a7a03aa22836d314081535dfb0e370ea",
+  "production-data/sss_engine.py": "435d101fb26e8489e567a5bac3085862e7b860a62f383738736ecd489e2f60fa",
+  "production-data/legacy_validate.py": "1be64b28e2cd9924674492a85433697134a3a45a6faa3d91249b7b4264fec013",
+  "production-data/legacy_release.py": "a6c1f243c9c87dcc2feb85771b0c9f51b4d47414abda6f6f49f9bdb87394457b",
+  "production-data/sss_spaced_send.py": "d44bf0650babda4a1770be5ab148b1b82f73f955b5b10726901eae132d5f1417",
+  "production-data/legacy_permission.py": "0432743ea428f7a8c2b116259179d5e6c1c8cb2de8a441b0d21db1f4efbc99b8",
+  "illustrative-not-approved/glm_draft_probe.py": "3d9d93397058aad564d6b9644af66439938fe30641e0a4389bcec6e4164ed583",
+  "illustrative-not-approved/sss_glm_bridge.py": "a78d9943bdaf301c48eb96bc91fef2af1e0d4afb2f91c38cebbf1e63bba666e6",
+  "illustrative-not-approved/sss_glm_worker.py": "e5376b7266b9d8a73c6f8a37accb7f72633ac92c86dba0f7338eca5366ed36d3"
+}

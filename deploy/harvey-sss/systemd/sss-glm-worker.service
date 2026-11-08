@@ -1,0 +1,15 @@
+[Unit]
+Description=SSS GLM channel worker (Hermes, tools disabled)
+# Do not touch a79ca986e5d2, the 7:58 PM exporter, @LoboDeskBot, or DMTC.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Fixed command. Do not substitute paths or add arguments.
+ExecStart=/usr/bin/docker exec -u hermes hermes-agent /opt/hermes/.venv/bin/python /opt/hermes/.hermes/scripts/approved/sss_glm/worker_main.py
+# Never run as root inside the container. Host unit may be root only to call docker.
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

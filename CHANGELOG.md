@@ -7,6 +7,15 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Added
+
+- **Approval-only GLM drafts for the Site Safety Scan overlay** (this fork).
+  Future dental/law/accounting outreach is written as a full subject and body
+  by Hermes `z-ai/glm-5.3-flash` (OpenRouter) through a least-privilege
+  request/response channel. SSS holds no model keys. Drafts are
+  `pending_review` or `held` only; Jose reviews them in the existing Outbox.
+  See `deploy/harvey-sss/README.md`.
+
 ### Changed
 
 - Seeding the signal catalog writes only a signal that is missing or whose catalog text changed. The dashboard seeds on every Today load, so this was a write per signal on every page view.
