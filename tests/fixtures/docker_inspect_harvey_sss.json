@@ -1,0 +1,108 @@
+{
+  "Id": "sha256:sssfixture000000000000000000000000000000000000000000000000",
+  "Name": "/harvey-sss",
+  "Config": {
+    "Hostname": "sss-worker",
+    "User": "harvey",
+    "Env": [
+      "SERPER_API_KEY=REDACTED",
+      "HARVEY_UNSUB_SECRET=REDACTED",
+      "SMTP_HOST=mail.example.test",
+      "SMTP_PORT=587",
+      "SMTP_USERNAME=REDACTED",
+      "SMTP_PASSWORD=REDACTED",
+      "IMAP_HOST=mail.example.test",
+      "IMAP_PORT=993",
+      "IMAP_USERNAME=REDACTED",
+      "IMAP_PASSWORD=REDACTED",
+      "HARVEY_PUBLIC_BASE=https://sitesafetyscan.example",
+      "PATH=/usr/local/bin:/usr/bin",
+      "PYTHONUNBUFFERED=1"
+    ],
+    "Cmd": ["sleep", "infinity"],
+    "Entrypoint": ["/app/entrypoint.sh"],
+    "Image": "harvey-sss:v3",
+    "WorkingDir": "/app",
+    "Labels": {
+      "app": "harvey-sss",
+      "role": "sss-worker"
+    },
+    "StopSignal": "SIGTERM",
+    "ExposedPorts": {"5555/tcp": {}},
+    "Healthcheck": {
+      "Test": ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:5555/')\""],
+      "Interval": 30000000000,
+      "Timeout": 5000000000,
+      "Retries": 3,
+      "StartPeriod": 10000000000
+    }
+  },
+  "HostConfig": {
+    "Binds": [
+      "/opt/harvey-sss/data:/app/data",
+      "/opt/harvey-sss/harvey.local.yaml:/app/harvey.local.yaml",
+      "/opt/harvey-sss/claude-home:/home/harvey/.claude"
+    ],
+    "NetworkMode": "bridge",
+    "PortBindings": {
+      "5555/tcp": [{"HostIp": "127.0.0.1", "HostPort": "5556"}]
+    },
+    "RestartPolicy": {"Name": "unless-stopped", "MaximumRetryCount": 0},
+    "Privileged": false,
+    "CapAdd": [],
+    "CapDrop": ["NET_RAW"],
+    "SecurityOpt": ["no-new-privileges:true"],
+    "PublishAllPorts": false,
+    "ReadonlyRootfs": false,
+    "ShmSize": 67108864,
+    "LogConfig": {"Type": "json-file", "Config": {"max-size": "10m"}},
+    "Dns": [],
+    "ExtraHosts": [],
+    "GroupAdd": [],
+    "Sysctls": {},
+    "Ulimits": [],
+    "Memory": 0,
+    "NanoCpus": 0,
+    "Init": false,
+    "AutoRemove": false,
+    "Runtime": "runc",
+    "PidMode": "",
+    "IpcMode": "private",
+    "UTSMode": "",
+    "MaskedPaths": [],
+    "ReadonlyPaths": [],
+    "Mounts": null
+  },
+  "NetworkSettings": {
+    "Networks": {
+      "bridge": {
+        "NetworkID": "bridgeid",
+        "Aliases": null,
+        "IPAddress": "172.17.0.10"
+      }
+    }
+  },
+  "Mounts": [
+    {
+      "Type": "bind",
+      "Source": "/opt/harvey-sss/data",
+      "Destination": "/app/data",
+      "RW": true,
+      "Propagation": "rprivate"
+    },
+    {
+      "Type": "bind",
+      "Source": "/opt/harvey-sss/harvey.local.yaml",
+      "Destination": "/app/harvey.local.yaml",
+      "RW": true,
+      "Propagation": "rprivate"
+    },
+    {
+      "Type": "bind",
+      "Source": "/opt/harvey-sss/claude-home",
+      "Destination": "/home/harvey/.claude",
+      "RW": true,
+      "Propagation": "rprivate"
+    }
+  ]
+}

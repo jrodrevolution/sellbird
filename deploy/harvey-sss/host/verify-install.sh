@@ -48,7 +48,7 @@ if [[ "$SHOW" -eq 1 ]]; then
     python3 "$(dirname "$0")/../overlay/data/sss_glm_preview.py" --show-copy --db /app/data/harvey.db || true
   fi
 else
-  say "copy hidden (hashes/status only). Re-run with --show-copy to read subject/body from harvey-sss DB. Custom web app is not wired."
+  say "copy hidden (hashes/status only). Re-run with --show-copy for CLI copy. Owner Studio path after deploy: /#sssglm (runtime unverified here)."
 fi
 
 if [[ "$fail" -ne 0 ]]; then

@@ -94,8 +94,7 @@ def test_preview_includes_copy_not_only_hashes(drafted):
     c, d = drafted
     doc = preview(c, d.batch_id)
     text = doc["batches"][0]["review"]
-    assert "NOT wired" in text
-    assert "harvey.dmtoclose.com" in text
+    assert "#sssglm" in text
     assert "sellbird dashboard" not in text.lower()
     item = doc["batches"][0]["items"][0]
     assert item["matches_binding"] is True

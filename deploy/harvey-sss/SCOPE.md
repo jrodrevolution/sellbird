@@ -1,71 +1,79 @@
-# Deploy identity — SSS worker overlay only
+# Deploy identity — SSS worker overlay + Studio SSS drafts
 
-Parent is verifying which container is which. This bundle must not be applied
-as if it were the custom Harvey web app.
+Parent is verifying which container is which. This bundle does not replace
+the custom Harvey web app.
 
 ## Two containers (do not conflate)
 
 | Identity | Container | How it is reached | This package |
 |---|---|---|---|
-| Custom Harvey web app | `harvey` | `harvey.dmtoclose.com` behind Cloudflare Access (email code) | **Never touch.** No docker cp, no recreate, no bind, no file overlay. |
-| SSS outreach worker | `harvey-sss` | localhost `:5556` (not the public hostname) | Overlay **only** `/opt/harvey-sss/data` worker scripts + GLM package. Optional extra channel mounts. Image stays `harvey-sss:v3`, uid 1000, `sleep infinity`. |
-| GLM runtime | `hermes-agent` | internal | Approved worker scripts + channel mounts. No app UI. |
+| Custom Harvey web app | `harvey` | Access hostname (email code). Exact Cloudflare route unverified; no DNS/tunnel changes. | Surgical inject only: `sss_glm_studio.py` / `sss_glm_studio.js` and two anchors in `dashboard.py` + `studio.html`. Never overwrite the rest of the UI. Never recreate this container. |
+| SSS outreach worker | `harvey-sss` | localhost `:5556` → container `:5555` | Overlay `/opt/harvey-sss/data` + optional exact-config recreate for GLM channel mounts. Image snapshot via `docker commit`. Original kept stopped as `harvey-sss.pre-glm`. |
+| GLM runtime | `hermes-agent` | internal gateway | Approved worker scripts. Exact-config recreate preserves anonymous `/opt/data`, `lobodesk-proxy`, entrypoint, labels, health. Original kept as `hermes-agent.pre-glm`. Brief gateway bounce only if recreate is applied. |
 
-Saved Oct 19–20 requested features (professional dashboard, Campaigns/drips,
-contacts import/tags/segments, visual editor, Harvey vs full-platform mode,
-GLM assistant) are **saved requests**, not proof each one shipped, and they
-are **not** in this fork overlay. Untracked `studio*` / `home*` files seen on
-a harvey-sss `/app` git status are leftover in that worker tree. They are not
-this package and must not be replaced from here.
+Saved Oct 19–20 dashboard/campaign/editor/mode-switch/assistant requests are
+**not replaced**. This inject adds SSS GLM review on Studio `#sssglm`.
 
-Upstream Sellbird `sellbird dashboard` / terminal Outbox (`127.0.0.1:5555`) is
-**not** the verified custom UI.
+Upstream Sellbird `sellbird dashboard` / terminal Outbox is **not** the
+verified custom UI. SSS `:5556` is the SSS container dashboard, not Studio.
 
-## Can the owner review SSS GLM drafts in the custom web app?
+## Owner review (implemented in source; runtime unverified until parent deploys)
 
-**No — not with this package.** Missing wiring, stated honestly:
+- URL path: existing Access hostname `/#sssglm` (container `harvey`).
+- Full subject/body, outbox id, binding hash.
+- Approve and Reject only. Confirm phrases required. No send button.
+- Edits of recipient/subject/body invalidate the hash; send-time guard holds.
+- harvey does **not** mount harvey-sss SQLite. Preview/approve go over
+  internal docker network `sss-glm-review` (`--internal`, port 18765 not
+  published) with a review token stored in each existing data dir.
 
-1. GLM enqueue writes `pending_review` rows into **harvey-sss**
-   `/app/data/harvey.db` (`outbox.kind = harvey_mode`).
-2. Documented harvey-sss mounts are `harvey.local.yaml`, claude-home, and
-   `/opt/harvey-sss/data` → `/app/data`. There is **no** shared volume with
-   container `harvey`.
-3. This overlay adds no API, proxy, or dashboard change that would list those
-   SSS rows on `harvey.dmtoclose.com`.
-4. Localhost `:5556` is the SSS container. If a UI is bound there, parent must
-   confirm it already reads **that** SQLite outbox. This bundle does not ship
-   or verify that UI, and `--recreate` would drop harvey-sss writable-layer
-   `/app` files that are not on a volume.
+## Exact recreate (fixes the blocked dry-run)
 
-Review path this package **does** provide:
+Approximate `docker run` dropped localhost `:5556`, Hermes anonymous
+`/opt/data`, `lobodesk-proxy`, writable-layer files, entrypoint, security
+opts, capabilities, labels, health, and other HostConfig. The replacement:
 
-- Read-only copy: `python /app/data/sss_glm_preview.py --show-copy` inside
-  harvey-sss (or `host/verify-install.sh --show-copy` on the VPS).
-- Approve is still a status flip on those SSS outbox rows. Status-only
-  approve keeps the GLM binding; recipient/subject/body edits hold.
+1. `docker commit` writable layer to `sss-glm-snap/<name>:<stamp>`
+2. `docker create` from that snapshot with **all** inspect mounts, ports,
+   networks/aliases, entrypoint/cmd, health, labels, security, caps
+3. Keep original stopped as `<name>.pre-glm` (not removed)
+4. Pre/post fingerprint compare; on mismatch, swap original back and fail
+5. Unsupported non-default HostConfig keys fail closed before any rename
+6. Secret-bearing inspect is written only under `/root/sss-glm-snapshots`
+   (0600). Public dry-run prints redacted env keys only.
 
-No new dashboard. No real sends.
+`--recreate` still requires `SSS_GLM_CONFIRM_RECREATE=harvey-sss-only`.
+Do not restart cloudflared, DMTC, or the independent Hermes report job
+except the hermes-agent container itself when adding channel mounts.
 
 ## Allowed write set
+
+Worker (`apply-vps.sh`):
 
 ```
 /opt/harvey-sss/data/sss_glm/
 /opt/harvey-sss/data/sss_engine.py
 /opt/harvey-sss/data/sss_spaced_send.py
-/opt/harvey-sss/data/legacy_permission.py   (preservation copy, unchanged)
-/opt/harvey-sss/data/legacy_release.py
-/opt/harvey-sss/data/legacy_validate.py
+/opt/harvey-sss/data/legacy_*            (preservation copies)
 /opt/harvey-sss/data/sss_glm_preview.py
 /opt/harvey-sss/data/sss_glm_approve.py
 hermes-agent:/opt/hermes/.hermes/scripts/approved/sss_glm/
-/opt/sss-glm-channel/{requests,responses,ledger}   (new, outside app data)
-optional systemd sss-glm-worker.{service,timer}
+/opt/sss-glm-channel/{requests,responses,ledger}
+optional systemd sss-glm-worker + sss-glm-review
 ```
 
-Forbidden: container `harvey`; `/app/web`; `studio*`; `dashboard.py`;
-`home*.js`; any path under a Harvey app tree; outbox row updates; SMTP;
-copying OpenRouter/Hermes keys into SSS.
+Dashboard (`apply-dashboard.sh`):
 
-`--recreate` requires `SSS_GLM_CONFIRM_RECREATE=harvey-sss-only` after the
-parent confirms the custom dashboard container stays up and any SSS `:5556`
-UI lives in the image or a volume.
+```
+harvey:/app/harvey/sss_glm_studio.py          (new)
+harvey:/app/harvey/web/sss_glm_studio.js      (new)
+harvey:/app/harvey/dashboard.py               (anchor insert + .pre-sss-glm backup)
+harvey:/app/harvey/web/studio.html            (nav + script + backup)
+/opt/harvey/data/sss-glm-review.token
+/opt/harvey-sss/data/sss-glm-review.token
+docker network sss-glm-review (internal)
+```
+
+Forbidden: wholesale replace of studio/home/dashboard; shared SQLite;
+publishing 18765; copying OpenRouter/SMTP keys; outbox SMTP tests;
+container recreate of `harvey` or `harvey-cloudflared`.

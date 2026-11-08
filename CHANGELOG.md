@@ -13,9 +13,10 @@ minor versions can still change behaviour.
   Future dental/law/accounting outreach is written as a full subject and body
   by Hermes `z-ai/glm-5.3-flash` (OpenRouter) through a least-privilege
   request/response channel. SSS holds no model keys. Drafts are
-  `pending_review` or `held` only. This overlay does not replace the custom
-  Harvey web app and does not wire GLM drafts into it. See
-  `deploy/harvey-sss/README.md` and `deploy/harvey-sss/SCOPE.md`.
+  `pending_review` or `held` only. Exact-config recreate preserves ports,
+  volumes, networks and writable layers. Custom Studio gets a narrow SSS
+  drafts page (`/#sssglm`) via an internal review API, not a shared SQLite
+  mount. See `deploy/harvey-sss/README.md` and `deploy/harvey-sss/SCOPE.md`.
 
 ### Changed
 

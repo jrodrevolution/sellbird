@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Read-only GLM batch preview. Never approves or sends.
 
-Jose reviews the actual mail in the existing Outbox (dashboard or
-``sellbird outbox``). This prints the immutable binding hashes so a later
-edit is visible.
+Owner review is Studio ``/#sssglm`` after parent deploy. This CLI still
+prints the actual copy and binding hashes.
 """
 
 from __future__ import annotations
@@ -69,15 +68,13 @@ def preview(c, batch_id: str | None = None) -> dict:
 
 
 REVIEW_PATH = (
-    "This CLI prints the actual subject/body. Hashes alone are not the copy.\n"
-    "Custom web app harvey.dmtoclose.com (Harvey container, Cloudflare Access) is NOT "
-    "wired to the SSS GLM outbox. Do not treat upstream Sellbird/terminal Outbox as "
-    "that web UI. SSS is a separate container (localhost :5556). GLM drafts land in "
-    "harvey-sss /app/data/harvey.db outbox kind=harvey_mode status=pending_review.\n"
-    "Read copy: python /app/data/sss_glm_preview.py --show-copy  (inside harvey-sss).\n"
-    "Owner approve still uses whatever already flips those SSS outbox rows to approved; "
-    "this package does not add a dashboard. Status-only approve keeps the binding; "
-    "recipient/subject/body edits invalidate it."
+    "Owner review path (implemented in this overlay, runtime unverified until "
+    "parent deploys): existing Access hostname /#sssglm on container harvey. "
+    "Full subject/body, ids and hashes. Approve/reject only; no send. "
+    "harvey proxies to harvey-sss over an internal docker network. Separate "
+    "SQLite files are not mounted across containers. Upstream Sellbird/terminal "
+    "Outbox and SSS localhost :5556 are not this UI. Status-only approve keeps "
+    "the binding; recipient/subject/body edits hold."
 )
 
 

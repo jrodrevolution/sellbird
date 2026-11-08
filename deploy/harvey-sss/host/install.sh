@@ -20,24 +20,30 @@ if [[ -d "$REPO/sss_glm" ]]; then
 fi
 find "$STAGE" -type d -name '__pycache__' -exec rm -rf {} +
 find "$STAGE" -name '*.pyc' -delete
+if [[ -d "$HERE/../harvey-custom" ]]; then
+  mkdir -p "$STAGE/harvey-custom"
+  cp -a "$HERE/../harvey-custom/." "$STAGE/harvey-custom/"
+fi
 cp "$HERE/README.md" "$HERE/SCOPE.md" "$STAGE/"
 mkdir -p "$STAGE/host"
 cp -a "$HERE/host/." "$STAGE/host/"
 cat > "$STAGE/COPY_TO_VPS.txt" <<'EOF'
-Read SCOPE.md first. This overlay is harvey-sss worker files only.
-Do NOT docker cp or recreate container "harvey" (harvey.dmtoclose.com).
-Do NOT present Sellbird/terminal Outbox as the custom web UI.
+Read SCOPE.md first.
 
-Preferred apply (dry-run, then files only, no recreate):
-  bash host/apply-vps.sh
-  bash host/apply-vps.sh --apply
-  bash host/verify-install.sh
+1. bash host/apply-vps.sh
+   bash host/apply-vps.sh --apply
+2. bash host/apply-dashboard.sh
+   bash host/apply-dashboard.sh --apply --reload-dashboard
+   (new Studio files + two anchors only; does not recreate harvey)
+3. Recreate only after dry-run JSON keeps 127.0.0.1:5556, Hermes /opt/data,
+   lobodesk-proxy, entrypoint, labels, health:
+   SSS_GLM_CONFIRM_RECREATE=harvey-sss-only bash host/apply-vps.sh --apply --recreate
+4. bash host/apply-vps.sh --apply --enable-timer
+5. bash host/verify-install.sh
 
-Channel mounts need a later recreate of harvey-sss and hermes-agent only:
-  SSS_GLM_CONFIRM_RECREATE=harvey-sss-only bash host/apply-vps.sh --apply --recreate
-Confirm first that any SSS localhost :5556 UI lives in the image or a volume.
-
-Never copy secrets. Never modify outbox rows. Never SMTP-test prospects.
+Owner review path after deploy: Access hostname /#sssglm
+SSS :5556 and Sellbird/terminal Outbox are not that UI.
+Never copy secrets. Never SMTP-test prospects. Never recreate harvey from scratch.
 EOF
 echo "staged $STAGE"
 echo "This script did not contact Docker, SMTP, or production databases."

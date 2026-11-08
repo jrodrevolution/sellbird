@@ -5,8 +5,8 @@
 #   /opt/harvey-sss/data/{sss_glm,sss_engine.py,sss_spaced_send.py,legacy_*,sss_glm_*}
 #   hermes-agent:/opt/hermes/.hermes/scripts/approved/sss_glm/
 #   optional systemd units
-# NEVER docker cp/recreate container "harvey" (harvey.dmtoclose.com custom UI).
-# NEVER write /app/web, studio, dashboard.py, or any Harvey app code.
+# NEVER docker cp/recreate container "harvey" from this worker script.
+# Dashboard inject is host/apply-dashboard.sh (new files + surgical patch only).
 # Never sends mail, never approves outbox rows, never copies keys.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -142,8 +142,14 @@ fi
 if [[ "$ENABLE_TIMER" -eq 1 ]]; then
   install -m 0644 "$ROOT/systemd/sss-glm-worker.service" /etc/systemd/system/sss-glm-worker.service
   install -m 0644 "$ROOT/systemd/sss-glm-worker.timer" /etc/systemd/system/sss-glm-worker.timer
+  if [[ -f "$ROOT/systemd/sss-glm-review.service" ]]; then
+    install -m 0644 "$ROOT/systemd/sss-glm-review.service" /etc/systemd/system/sss-glm-review.service
+  fi
   systemctl daemon-reload
   systemctl enable --now sss-glm-worker.timer
+  if [[ -f /etc/systemd/system/sss-glm-review.service ]]; then
+    systemctl enable --now sss-glm-review.service
+  fi
 fi
 
 echo "applied file overlay. outbox rows unchanged. run host/verify-install.sh next."

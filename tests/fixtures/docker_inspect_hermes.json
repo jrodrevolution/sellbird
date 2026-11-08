@@ -1,0 +1,95 @@
+{
+  "Id": "sha256:hermesfixture00000000000000000000000000000000000000000000",
+  "Name": "/hermes-agent",
+  "Config": {
+    "Hostname": "hermes-agent",
+    "User": "root",
+    "Env": [
+      "OPENROUTER_API_KEY=REDACTED",
+      "PATH=/opt/hermes/.venv/bin:/usr/bin",
+      "HOME=/home/hermes"
+    ],
+    "Cmd": ["gateway", "run"],
+    "Entrypoint": ["/opt/hermes/.venv/bin/hermes"],
+    "Image": "nousresearch/hermes-agent:v2026.7.20",
+    "WorkingDir": "/opt/hermes",
+    "Labels": {
+      "com.docker.compose.project": "hermes",
+      "com.docker.compose.service": "hermes-agent"
+    },
+    "StopSignal": "SIGTERM",
+    "Healthcheck": {
+      "Test": ["CMD-SHELL", "true"],
+      "Interval": 60000000000,
+      "Timeout": 5000000000,
+      "Retries": 2
+    }
+  },
+  "HostConfig": {
+    "Binds": [
+      "/opt/hermes/.hermes:/home/hermes/.hermes:rw",
+      "/opt/workspaces/lobodesk-mission-control:/workspaces/lobodesk-mission-control:rw"
+    ],
+    "NetworkMode": "hermes_hermes-network",
+    "PortBindings": {},
+    "RestartPolicy": {"Name": "unless-stopped", "MaximumRetryCount": 0},
+    "Privileged": false,
+    "CapAdd": ["CHOWN"],
+    "CapDrop": [],
+    "SecurityOpt": ["label=disable"],
+    "PublishAllPorts": false,
+    "ShmSize": 67108864,
+    "LogConfig": {"Type": "json-file", "Config": {}},
+    "Init": false,
+    "Runtime": "runc",
+    "IpcMode": "private",
+    "Memory": 0,
+    "NanoCpus": 0
+  },
+  "NetworkSettings": {
+    "Networks": {
+      "hermes_hermes-network": {
+        "NetworkID": "hermesnetid",
+        "Aliases": ["hermes-agent", "gateway"],
+        "IPAddress": "172.18.0.2"
+      },
+      "lobodesk-proxy": {
+        "NetworkID": "proxyid",
+        "Aliases": ["hermes-agent"],
+        "IPAddress": "172.19.0.4"
+      }
+    }
+  },
+  "Mounts": [
+    {
+      "Type": "bind",
+      "Source": "/opt/hermes/.hermes",
+      "Destination": "/home/hermes/.hermes",
+      "RW": true,
+      "Propagation": "rprivate"
+    },
+    {
+      "Type": "volume",
+      "Name": "hermes_hermes-agent-src",
+      "Source": "/var/lib/docker/volumes/hermes_hermes-agent-src/_data",
+      "Destination": "/opt/hermes",
+      "Driver": "local",
+      "RW": true
+    },
+    {
+      "Type": "bind",
+      "Source": "/opt/workspaces/lobodesk-mission-control",
+      "Destination": "/workspaces/lobodesk-mission-control",
+      "RW": true,
+      "Propagation": "rprivate"
+    },
+    {
+      "Type": "volume",
+      "Name": "a1b2c3d4e5f6anonymousoptdata",
+      "Source": "/var/lib/docker/volumes/a1b2c3d4e5f6anonymousoptdata/_data",
+      "Destination": "/opt/data",
+      "Driver": "local",
+      "RW": true
+    }
+  ]
+}
