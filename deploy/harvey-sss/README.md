@@ -62,7 +62,9 @@ bash host/verify-install.sh
 Step 3 snapshots writable layers, keeps `<name>.pre-glm` stopped, and fail-
 closes on config drift. Skip it until the dry-run plan matches production.
 PID1 `sleep infinity` dashboards are captured and relaunched; Hermes `/init`
-is not given extra workers. Do not `docker restart harvey`.
+is not given extra workers. Do not `docker restart harvey`. Slim Harvey has
+no `kill` binary: reload/rollback signal the captured listener with python
+`os.kill` after PID/UID/argv/listener identity checks.
 
 Do not restart cloudflared. Do not SMTP-test prospects.
 
@@ -90,7 +92,8 @@ recreate, process lifecycle, file launches without PYTHONPATH, owner
 edit→new hash→approve / old-hash replay blocked, Tijuana send stats
 (unavailable not 0), review API, Studio patch anchors, fail-closed send
 guard (migration/read/unavailable DB held; verified frozen 83 still
-allowed). Hosts are `*.example`. No live DB, no SMTP.
+allowed), slim-image lifecycle (no `kill` binary; rollback scoped reload).
+Hosts are `*.example`. No live DB, no SMTP.
 
 Runtime after parent apply (not claimed here): Access login, `/#sssglm`
 loads drafts and SSS send stats; `python3 /app/data/sss_glm/review_server.py`

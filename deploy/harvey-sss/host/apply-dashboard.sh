@@ -77,9 +77,9 @@ docker cp "$CUSTOM/harvey/sss_glm_studio.py" harvey:/app/harvey/sss_glm_studio.p
 docker cp "$CUSTOM/harvey/web/sss_glm_studio.js" harvey:/app/harvey/web/sss_glm_studio.js
 docker cp "$CUSTOM/patch_live.py" harvey:/tmp/sss_glm_patch_live.py
 docker exec -u 0 harvey python3 /tmp/sss_glm_patch_live.py --root /app/harvey --apply
-docker exec -u 0 harvey rm -f /tmp/sss_glm_patch_live.py
-docker exec -u 0 harvey chown 1000:1000 \
-  /app/harvey/sss_glm_studio.py /app/harvey/web/sss_glm_studio.js
+python3 "$HERE/reload_process.py" fs harvey --op unlink --path /tmp/sss_glm_patch_live.py
+python3 "$HERE/reload_process.py" fs harvey --op chown --owner 1000:1000 \
+  --path /app/harvey/sss_glm_studio.py --path /app/harvey/web/sss_glm_studio.js
 
 docker network inspect sss-glm-review >/dev/null 2>&1 || \
   docker network create --internal --driver bridge sss-glm-review

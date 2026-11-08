@@ -24,6 +24,8 @@ minor versions can still change behaviour.
   the package parent so `python3 /app/data/sss_glm/review_server.py` works
   without PYTHONPATH. GLM send guards fail closed on migration/read/unavailable
   DB; only frozen-manifest exact-hash legacy 83 may pass without a GLM row.
+  Scoped dashboard reload uses python `os.kill` (slim Harvey has no `kill`
+  binary); rollback uses the same path. Never `docker exec … kill`.
   See `deploy/harvey-sss/README.md` and `deploy/harvey-sss/SCOPE.md`.
 
 ### Changed

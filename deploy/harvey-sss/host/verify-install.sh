@@ -35,7 +35,8 @@ if docker inspect hermes-agent >/dev/null 2>&1; then
   echo "$hm" | grep -q '/var/sss-glm/requests false' || say "NOTE: hermes requests should be RO"
   echo "$hm" | grep -q '/var/sss-glm/responses true' || say "NOTE: hermes responses should be RW"
   echo "$hm" | grep -q '/var/sss-glm/ledger true' || say "NOTE: hermes ledger should be RW"
-  docker exec -u hermes hermes-agent test -f /opt/hermes/.hermes/scripts/approved/sss_glm/worker_main.py \
+  docker exec -u hermes hermes-agent /opt/hermes/.venv/bin/python -c \
+    "import os,sys; sys.exit(0 if os.path.isfile('/opt/hermes/.hermes/scripts/approved/sss_glm/worker_main.py') else 1)" \
     || bad "Hermes worker_main.py missing"
   docker exec -u hermes -w /opt/hermes/.hermes/scripts/approved hermes-agent \
     /opt/hermes/.venv/bin/python -c "import sss_glm.worker; print('worker import ok')" \

@@ -126,14 +126,17 @@ chmod 0644 "$SSS_DATA"/{sss_engine.py,sss_spaced_send.py,legacy_permission.py,le
 
 if docker inspect hermes-agent >/dev/null 2>&1; then
   # Worker scripts only. Never docker cp into container "harvey".
-  docker exec -u 0 hermes-agent mkdir -p /opt/hermes/.hermes/scripts/approved/sss_glm
+  # Slim images may lack mkdir/chown/rm; use the container python interpreter.
+  python3 "$HERE/reload_process.py" fs hermes-agent --op mkdir \
+    --path /opt/hermes/.hermes/scripts/approved/sss_glm
   docker cp "$PKG/." hermes-agent:/opt/hermes/.hermes/scripts/approved/sss_glm/
   docker cp "$ROOT/overlay/hermes/worker_main.py" \
     hermes-agent:/opt/hermes/.hermes/scripts/approved/sss_glm/worker_main.py
-  docker exec -u 0 hermes-agent chown -R 1000:1000 /opt/hermes/.hermes/scripts/approved/sss_glm
-  docker exec -u 0 hermes-agent rm -f \
-    /opt/hermes/.hermes/scripts/approved/sss_glm/fakes.py \
-    /opt/hermes/.hermes/scripts/approved/sss_glm/live_dry_run.py
+  python3 "$HERE/reload_process.py" fs hermes-agent --op chown --owner 1000:1000 --recursive \
+    --path /opt/hermes/.hermes/scripts/approved/sss_glm
+  python3 "$HERE/reload_process.py" fs hermes-agent --op unlink \
+    --path /opt/hermes/.hermes/scripts/approved/sss_glm/fakes.py \
+    --path /opt/hermes/.hermes/scripts/approved/sss_glm/live_dry_run.py
 fi
 
 if [[ "$RECREATE" -eq 1 ]]; then

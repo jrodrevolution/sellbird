@@ -7,22 +7,29 @@ metadata (no environ, no logs) and relaunches that exact argv.
 
 Hermes PID1 is the image entrypoint (/init + wrapper); do not relaunch its
 children. Review server is new and started only if port 18765 is empty.
+
+Slim Harvey has python3 but no ``kill``/``rm``/``chown``/``sh`` binaries.
+In-container work uses the existing interpreter (os.kill, os.remove, os.chown).
+Never ``docker exec … kill``. Never docker restart.
 """
 from __future__ import annotations
 
 import json
 import os
 import shlex
+import signal
 import subprocess
 import time
 
 DASHBOARD_PORT = 5555
 REVIEW_PORT = 18765
 SLEEP_PID1 = ("sleep", "infinity")
+SIGTERM = int(signal.SIGTERM)
+SIGKILL = int(signal.SIGKILL)
 
 # Runs inside the target container. Prints JSON. Never dumps environ.
-CAPTURE_PY = r"""
-import json, os, glob
+_PROC_HELPERS = r"""
+import json, os, glob, signal, sys
 def argv_of(pid):
     try:
         raw = open('/proc/%s/cmdline' % pid, 'rb').read().split(b'\0')
@@ -86,6 +93,9 @@ def listener(port):
             'port': int(port),
         })
     return hits
+"""
+
+CAPTURE_PY = _PROC_HELPERS + r"""
 out = {
     'pid1': {'pid': '1', 'argv': argv_of('1'), 'cwd': cwd_of('1'), 'uid': uid_of('1')},
     'listeners': {
@@ -96,6 +106,143 @@ out = {
 print(json.dumps(out))
 """
 
+# Identity-checked SIGTERM/SIGKILL via os.kill. No kill binary.
+STOP_PY = _PROC_HELPERS + r"""
+spec = json.loads(sys.stdin.read() or '{}')
+pid = str(spec.get('pid') or '')
+if not pid.isdigit() or pid in ('0', '1'):
+    raise SystemExit('refuse pid1 or non-pid; no docker restart')
+port = int(spec.get('port') or 0)
+want_uid = str(spec.get('uid') or '')
+want_argv = list(spec.get('argv') or [])
+if not os.path.exists('/proc/%s' % pid):
+    print(json.dumps({'ok': True, 'already_gone': True, 'pid': pid}))
+    raise SystemExit(0)
+got_uid = uid_of(pid)
+got_argv = argv_of(pid)
+if want_uid and got_uid != want_uid:
+    raise SystemExit('uid mismatch; refuse stop')
+if want_argv and got_argv != want_argv:
+    raise SystemExit('argv mismatch; refuse stop')
+if port:
+    hits = listener(port)
+    mine = [h for h in hits if str(h.get('pid')) == pid]
+    if hits and not mine:
+        raise SystemExit('pid is not the listener; refuse stop')
+    if not hits:
+        print(json.dumps({'ok': True, 'already_gone': True, 'pid': pid}))
+        raise SystemExit(0)
+sig = int(spec.get('sig') or signal.SIGTERM)
+try:
+    os.kill(int(pid), sig)
+except ProcessLookupError:
+    print(json.dumps({'ok': True, 'already_gone': True, 'pid': pid}))
+    raise SystemExit(0)
+except PermissionError:
+    raise SystemExit('os.kill permission denied; refusing docker restart')
+print(json.dumps({'ok': True, 'signaled': pid, 'sig': sig, 'via': 'os.kill'}))
+"""
+
+FS_PY = r"""
+import json, os, shutil, sys
+spec = json.loads(sys.stdin.read() or '{}')
+op = spec.get('op') or ''
+paths = list(spec.get('paths') or [])
+owner = spec.get('owner') or ''
+recursive = bool(spec.get('recursive'))
+uid = gid = None
+if owner:
+    parts = str(owner).replace('.', ':').split(':')
+    uid, gid = int(parts[0]), int(parts[1] if len(parts) > 1 else parts[0])
+
+def chown_path(p):
+    os.chown(p, uid, gid)
+    if recursive and os.path.isdir(p):
+        for root, dirs, files in os.walk(p):
+            os.chown(root, uid, gid)
+            for name in dirs + files:
+                os.chown(os.path.join(root, name), uid, gid)
+
+done = []
+if op == 'mkdir':
+    for p in paths:
+        os.makedirs(p, exist_ok=True)
+        done.append(p)
+elif op == 'unlink':
+    for p in paths:
+        if os.path.isfile(p) or os.path.islink(p):
+            os.remove(p)
+            done.append(p)
+elif op == 'chown':
+    if uid is None:
+        raise SystemExit('chown requires owner')
+    for p in paths:
+        chown_path(p)
+        done.append(p)
+elif op == 'revert-sss-glm-inject':
+    pairs = (
+        ('/app/harvey/dashboard.py.pre-sss-glm', '/app/harvey/dashboard.py'),
+        ('/app/harvey/web/studio.html.pre-sss-glm', '/app/harvey/web/studio.html'),
+    )
+    for src, dst in pairs:
+        if os.path.isfile(src):
+            shutil.copy2(src, dst)
+            done.append(dst)
+    for p in ('/app/harvey/sss_glm_studio.py', '/app/harvey/web/sss_glm_studio.js'):
+        if os.path.isfile(p) or os.path.islink(p):
+            os.remove(p)
+            done.append(p)
+else:
+    raise SystemExit('unknown fs op')
+print(json.dumps({'ok': True, 'op': op, 'done': done}))
+"""
+
+
+def _interpreters(container: str) -> tuple[str, ...]:
+    py = ("python3", "python")
+    if container == "hermes-agent":
+        return py + ("/opt/hermes/.venv/bin/python",)
+    return py
+
+
+def _not_found(returncode: int, err: str) -> bool:
+    blob = (err or "").lower()
+    return returncode == 127 or "executable file not found" in blob or "no such file" in blob
+
+
+def exec_python(container: str, code: str, *, uid=None, cwd: str | None = None,
+                input_text: str | None = None, timeout_s: float = 20.0):
+    """Run code with the container's python3/python. Never a kill/rm/chown binary."""
+    last = None
+    for py in _interpreters(container):
+        cmd = ["docker", "exec"]
+        if input_text is not None:
+            cmd.append("-i")
+        if uid is not None:
+            cmd += ["-u", str(uid)]
+        if cwd:
+            cmd += ["-w", cwd]
+        cmd += [container, py, "-c", code]
+        r = subprocess.run(
+            cmd, capture_output=True, text=True,
+            input=input_text, timeout=timeout_s,
+        )
+        last = r
+        if r.returncode == 0:
+            return r
+        err = (r.stderr or "") + (r.stdout or "")
+        if _not_found(r.returncode, err):
+            continue
+        raise SystemExit(
+            f"{container}: in-container python failed ({err[:400]!r}). "
+            "Refusing docker restart and refusing the kill binary."
+        )
+    err = ((last.stderr or last.stdout or "") if last else "no python")[:400]
+    raise SystemExit(
+        f"{container}: no python interpreter for in-container work ({err!r}). "
+        "Refusing docker restart and refusing the kill/rm/chown binaries."
+    )
+
 
 def _run(cmd, **kw):
     return subprocess.run(cmd, check=True, capture_output=True, text=True, **kw)
@@ -104,16 +251,20 @@ def _run(cmd, **kw):
 def capture(container: str) -> dict:
     """Live process metadata. No environ, no logs."""
     last = None
-    for py in ("python3", "python"):
+    for py in _interpreters(container):
         r = subprocess.run(
             ["docker", "exec", container, py, "-c", CAPTURE_PY],
-            capture_output=True, text=True,
+            capture_output=True, text=True, timeout=20,
         )
         last = r
         if r.returncode == 0:
             data = json.loads(r.stdout)
             data["container"] = container
             return data
+        err = (r.stderr or "") + (r.stdout or "")
+        if _not_found(r.returncode, err):
+            continue
+        break
     err = (last.stderr or last.stdout or "")[:400] if last else "no python"
     raise SystemExit(
         f"{container}: process capture failed ({err!r}). "
@@ -167,8 +318,73 @@ def _listening(container: str, port: int) -> bool:
     return bool((meta.get("listeners") or {}).get(str(port)))
 
 
-def stop_pid(container: str, pid: str) -> None:
-    subprocess.run(["docker", "exec", container, "kill", pid], check=False)
+def _same_identity(live: dict, proc: dict) -> bool:
+    return (
+        str(live.get("pid")) == str(proc.get("pid"))
+        and str(live.get("uid") or "") == str(proc.get("uid") or "")
+        and list(live.get("argv") or []) == list(proc.get("argv") or [])
+    )
+
+
+def stop_listener(container: str, proc: dict, port: int, *, sig: int = SIGTERM) -> dict:
+    """SIGTERM/SIGKILL the captured listener via python os.kill.
+
+    Re-checks PID/UID/argv and listenership inside the container. Never
+    execs a kill binary. Never signals PID 1. Never docker restart.
+    """
+    pid = str(proc.get("pid") or "")
+    if not pid.isdigit() or pid in ("0", "1"):
+        raise SystemExit(f"{container}: refuse stop of pid {pid!r} (not a dashboard listener)")
+    live_meta = capture(container)
+    if not pid1_is_sleep_infinity(live_meta):
+        raise SystemExit(
+            f"{container}: PID1 is {live_meta.get('pid1', {}).get('argv')!r}; "
+            "refusing to signal anything or docker restart"
+        )
+    live = one_listener(live_meta, port)
+    if not _same_identity(live, proc):
+        raise SystemExit(
+            f"{container}: listener identity changed (pid/uid/argv); refusing stop"
+        )
+    spec = {
+        "pid": pid,
+        "uid": str(proc.get("uid") or live.get("uid") or ""),
+        "argv": list(proc.get("argv") or live.get("argv") or []),
+        "port": int(port),
+        "sig": int(sig),
+    }
+    # Root python so /proc/<pid>/fd is readable; identity checks bound the pid.
+    r = exec_python(
+        container, STOP_PY, uid="0",
+        input_text=json.dumps(spec),
+    )
+    try:
+        return json.loads(r.stdout or "{}")
+    except json.JSONDecodeError:
+        return {"ok": True, "signaled": pid, "raw": (r.stdout or "")[:200]}
+
+
+def stop_pid(container: str, pid: str, *, proc: dict | None = None, port: int | None = None) -> dict:
+    """Identity-required stop. Blind ``docker exec kill <pid>`` is gone."""
+    if proc is None or port is None:
+        raise SystemExit(
+            f"{container}: stop_pid requires captured proc+port identity; "
+            "refusing blind kill binary and docker restart"
+        )
+    if str(proc.get("pid")) != str(pid):
+        raise SystemExit(f"{container}: pid does not match captured listener")
+    return stop_listener(container, proc, port)
+
+
+def container_fs(container: str, op: str, paths: list[str], *,
+                 owner: str = "", recursive: bool = False, uid: str = "0") -> dict:
+    """mkdir/unlink/chown/revert inside the container using python, not rm/chown/sh."""
+    spec = {"op": op, "paths": list(paths), "owner": owner, "recursive": recursive}
+    r = exec_python(container, FS_PY, uid=uid, input_text=json.dumps(spec))
+    try:
+        return json.loads(r.stdout or "{}")
+    except json.JSONDecodeError:
+        return {"ok": True, "raw": (r.stdout or "")[:200]}
 
 
 def start_captured(container: str, proc: dict) -> None:
@@ -188,6 +404,15 @@ def wait_listener(container: str, port: int, timeout_s: float = 30.0) -> None:
     raise SystemExit(f"{container}: listener {port} did not return")
 
 
+def wait_listener_gone(container: str, port: int, timeout_s: float = 15.0) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if not _listening(container, port):
+            return True
+        time.sleep(0.2)
+    return not _listening(container, port)
+
+
 def reload_dashboard(container: str, *, port: int = DASHBOARD_PORT) -> dict:
     """SIGTERM the captured :port process and relaunch the same argv. Never docker restart."""
     before = capture(container)
@@ -197,12 +422,14 @@ def reload_dashboard(container: str, *, port: int = DASHBOARD_PORT) -> dict:
             "not sleep infinity; refusing to kill PID1 or docker restart"
         )
     proc = one_listener(before, port)
-    stop_pid(container, proc["pid"])
-    deadline = time.time() + 15
-    while time.time() < deadline and _listening(container, port):
-        time.sleep(0.2)
-    if _listening(container, port):
-        raise SystemExit(f"{container}: old listener {port} still up")
+    stop_listener(container, proc, port, sig=SIGTERM)
+    if not wait_listener_gone(container, port, timeout_s=8.0):
+        stop_listener(container, proc, port, sig=SIGKILL)
+        if not wait_listener_gone(container, port, timeout_s=7.0):
+            raise SystemExit(
+                f"{container}: old listener {port} still up after os.kill; "
+                "refusing docker restart"
+            )
     try:
         start_captured(container, proc)
         wait_listener(container, port)
@@ -213,7 +440,7 @@ def reload_dashboard(container: str, *, port: int = DASHBOARD_PORT) -> dict:
     if not pid1_is_sleep_infinity(after):
         raise SystemExit(f"{container}: PID1 changed after scoped reload")
     return {"ok": True, "container": container, "port": port, "argv": proc["argv"],
-            "docker_restart": False}
+            "docker_restart": False, "stop": "os.kill"}
 
 
 def relaunch_if_sleep_pid1(container: str, saved: dict, *, port: int = DASHBOARD_PORT) -> dict:

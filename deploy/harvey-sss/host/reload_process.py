@@ -3,8 +3,10 @@
 """Scoped dashboard/review process control. Never docker restart.
 
 Captures listener metadata (no environ). Reloads the :5555 dashboard by
-killing that PID and relaunching the same argv. Starts the review server
-only when :18765 is empty. Optional host systemd persist from captured argv.
+os.kill of that PID (python interpreter; no kill binary) and relaunching
+the same argv. Starts the review server only when :18765 is empty.
+In-container mkdir/unlink/chown/revert also use python. Optional host
+systemd persist from captured argv.
 """
 from __future__ import annotations
 
@@ -29,6 +31,7 @@ from sss_glm.process_lifecycle import (  # noqa: E402
     reload_dashboard,
     start_review_server,
     one_listener,
+    container_fs,
     DASHBOARD_PORT,
 )
 
@@ -43,12 +46,32 @@ def _write_json(path: str, data: dict) -> None:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("action", choices=("capture", "reload-dashboard", "start-review", "persist", "listening"))
+    p.add_argument(
+        "action",
+        choices=(
+            "capture", "reload-dashboard", "start-review", "persist",
+            "listening", "fs",
+        ),
+    )
     p.add_argument("container")
     p.add_argument("--write", default="")
     p.add_argument("--port", type=int, default=DASHBOARD_PORT)
     p.add_argument("--unit", default="")
+    p.add_argument("--op", default="", help="fs: mkdir|unlink|chown|revert-sss-glm-inject")
+    p.add_argument("--path", action="append", default=[], dest="paths")
+    p.add_argument("--owner", default="")
+    p.add_argument("--recursive", action="store_true")
     args = p.parse_args(argv)
+    if args.action == "fs":
+        if args.container not in ("harvey", "harvey-sss", "hermes-agent"):
+            raise SystemExit("fs only on harvey, harvey-sss, or hermes-agent")
+        op = args.op or "unlink"
+        out = container_fs(
+            args.container, op, args.paths,
+            owner=args.owner, recursive=args.recursive,
+        )
+        print(json.dumps(out, indent=2))
+        return 0
     if args.container not in ("harvey", "harvey-sss"):
         raise SystemExit("only harvey or harvey-sss (sleep-infinity PID1 dashboards)")
     if args.action == "capture":

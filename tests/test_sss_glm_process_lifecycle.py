@@ -17,6 +17,9 @@ DASH = ROOT / "deploy" / "harvey-sss" / "host" / "apply-dashboard.sh"
 RECREATE = ROOT / "deploy" / "harvey-sss" / "host" / "recreate.py"
 RELOAD = ROOT / "deploy" / "harvey-sss" / "host" / "reload_process.py"
 LIFECYCLE = ROOT / "sss_glm" / "process_lifecycle.py"
+ROLLBACK = ROOT / "deploy" / "harvey-sss" / "host" / "rollback.sh"
+APPLY_VPS = ROOT / "deploy" / "harvey-sss" / "host" / "apply-vps.sh"
+VERIFY = ROOT / "deploy" / "harvey-sss" / "host" / "verify-install.sh"
 
 # Synthetic /proc/net/tcp: IPv4 LISTEN on 5555 (0x15B3) inode 4242.
 TCP_5555 = """  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
@@ -96,3 +99,38 @@ def test_reload_helper_refuses_unknown_container():
     spec = RELOAD.read_text()
     assert "only harvey or harvey-sss" in spec
     assert "review server only on harvey-sss" in spec
+
+
+def test_lifecycle_uses_os_kill_not_kill_binary():
+    src = LIFECYCLE.read_text()
+    assert '["docker", "exec", container, "kill"' not in src
+    assert '"kill", pid' not in src
+    assert "os.kill" in src
+    assert "STOP_PY" in src
+    assert "refuse pid1" in src
+
+
+def test_apply_and_rollback_do_not_exec_missing_host_binaries():
+    dash = DASH.read_text()
+    rb = ROLLBACK.read_text()
+    vps = APPLY_VPS.read_text()
+    ver = VERIFY.read_text()
+    blob = dash + rb + vps + ver
+    assert not any(ln.strip().startswith("docker restart") for ln in rb.splitlines())
+    assert "restart harvey to unload" not in rb
+    assert "reload-dashboard" in rb
+    assert "revert-sss-glm-inject" in rb
+    assert "docker exec -u 0 harvey rm" not in dash
+    assert "docker exec -u 0 harvey chown" not in dash
+    assert "docker exec -u 0 harvey sh" not in rb
+    assert "docker exec -u 0 hermes-agent mkdir" not in vps
+    assert "docker exec -u 0 hermes-agent chown" not in vps
+    assert "docker exec -u 0 hermes-agent rm" not in vps
+    assert "hermes-agent test -f" not in ver
+    assert "reload_process.py" in dash and "fs harvey" in dash
+    for needle in (
+        "docker exec -u 0 harvey rm",
+        "docker exec -u 0 harvey chown",
+        'exec", container, "kill"',
+    ):
+        assert needle not in blob, needle
