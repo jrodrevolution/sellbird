@@ -1,0 +1,16 @@
+[Unit]
+Description=SSS GLM review HTTP (internal network only, no send)
+# Do not publish host ports. Do not touch a79ca986e5d2, exporter, Telegram, or DMTC.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/bash -c 'until docker inspect -f {{.State.Running}} harvey-sss 2>/dev/null | grep -qx true; do sleep 1; done'
+ExecStart=/usr/bin/docker exec -u harvey harvey-sss python3 /app/data/sss_glm/review_server.py
+Restart=on-failure
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

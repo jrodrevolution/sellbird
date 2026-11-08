@@ -7,6 +7,34 @@ minor versions can still change behaviour.
 
 ## [Unreleased]
 
+### Added
+
+- **Approval-only GLM drafts for the Site Safety Scan overlay** (this fork).
+  Future dental/law/accounting outreach is written as a full subject and body
+  by Hermes `z-ai/glm-5.3-flash` (OpenRouter) through a least-privilege
+  request/response channel. SSS holds no model keys. Drafts are
+  `pending_review` or `held` only. Exact-config recreate uses the Docker
+  Engine API so a multi-arg Entrypoint (Hermes `/init` + wrapper) and Cmd
+  stay arrays. harvey/harvey-sss PID1 `sleep infinity` dashboards are
+  captured and relaunched; `docker restart` is refused. Custom Studio gets
+  a narrow SSS drafts page (`/#sssglm`) via an internal review API, not a
+  shared SQLite mount. Owner edit of subject/body writes a new hash and
+  needs a new approve. SSS send stats (America/Tijuana, status=sent) sit
+  on that page; Hermes 8PM reports stay independent. File launches insert
+  the package parent so `python3 /app/data/sss_glm/review_server.py` works
+  without PYTHONPATH. GLM send guards fail closed on migration/read/unavailable
+  DB; only frozen-manifest exact-hash legacy 83 may pass without a GLM row.
+  Scoped dashboard reload uses python `os.kill` as the captured UID
+  (slim Harvey has no `kill` binary; UID 0 cannot see the UID 1000
+  listener). Rollback uses the same path. Never `docker exec … kill`.
+  Hermes SDK generation uses a finite 8-iteration / 1536-token bound so
+  `z-ai/glm-5.3-flash` can emit JSON subject/body; iteration-limit fallback
+  text is held. Standalone no-recipient synthetic accept runs inside
+  hermes-agent before recreate. Prompt, validator, and compose share one
+  50–75 word generated-body budget (scan URL/footer outside it). Actionable
+  remediation hints are held; observed finding explanations are allowed.
+  See `deploy/harvey-sss/README.md` and `deploy/harvey-sss/SCOPE.md`.
+
 ### Changed
 
 - Seeding the signal catalog writes only a signal that is missing or whose catalog text changed. The dashboard seeds on every Today load, so this was a write per signal on every page view.

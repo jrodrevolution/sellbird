@@ -5,6 +5,9 @@
 # Data
 data/
 *.db
+# Overlay sources for the SSS deploy bundle (not a live database).
+!deploy/harvey-sss/overlay/data/
+!deploy/harvey-sss/overlay/data/**
 
 # Python
 __pycache__/

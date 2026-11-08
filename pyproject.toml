@@ -56,7 +56,7 @@ sellbird = "sellbird.cli:main"
 harvey = "harvey.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["sellbird*", "harvey*"]
+include = ["sellbird*", "harvey*", "sss_glm*"]
 
 # The editable defaults an installed app seeds its home folder from
 # (sellbird/home.py). They land in <prefix>/share/sellbird.
