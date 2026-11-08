@@ -10,6 +10,8 @@ children. Review server is new and started only if port 18765 is empty.
 
 Slim Harvey has python3 but no ``kill``/``rm``/``chown``/``sh`` binaries.
 In-container work uses the existing interpreter (os.kill, os.remove, os.chown).
+Listener capture/stop/wait run as the **captured UID** (dashboard is 1000).
+UID 0 does not see that socket in this image; empty root view is not gone.
 Never ``docker exec … kill``. Never docker restart.
 """
 from __future__ import annotations
@@ -93,6 +95,18 @@ def listener(port):
             'port': int(port),
         })
     return hits
+def tcp_readable():
+    try:
+        open('/proc/net/tcp').close()
+        return True
+    except Exception:
+        return False
+def fd_readable(pid):
+    try:
+        os.listdir('/proc/%s/fd' % pid)
+        return True
+    except Exception:
+        return False
 """
 
 CAPTURE_PY = _PROC_HELPERS + r"""
@@ -107,7 +121,8 @@ print(json.dumps(out))
 """
 
 # Identity-checked SIGTERM/SIGKILL via os.kill. No kill binary.
-STOP_PY = _PROC_HELPERS + r"""
+# Must run as the captured listener UID. Empty UID0 socket view is not gone.
+STOP_BODY = r"""
 spec = json.loads(sys.stdin.read() or '{}')
 pid = str(spec.get('pid') or '')
 if not pid.isdigit() or pid in ('0', '1'):
@@ -115,23 +130,35 @@ if not pid.isdigit() or pid in ('0', '1'):
 port = int(spec.get('port') or 0)
 want_uid = str(spec.get('uid') or '')
 want_argv = list(spec.get('argv') or [])
-if not os.path.exists('/proc/%s' % pid):
+try:
+    os.kill(int(pid), 0)
+    alive = True
+except ProcessLookupError:
+    alive = False
+except PermissionError:
+    raise SystemExit('pid not signalable by this uid; refuse stop')
+if not alive:
     print(json.dumps({'ok': True, 'already_gone': True, 'pid': pid}))
     raise SystemExit(0)
 got_uid = uid_of(pid)
 got_argv = argv_of(pid)
+if want_uid and not got_uid:
+    raise SystemExit('uid unreadable; refuse stop')
+if want_argv and not got_argv:
+    raise SystemExit('argv unreadable; refuse stop')
 if want_uid and got_uid != want_uid:
     raise SystemExit('uid mismatch; refuse stop')
 if want_argv and got_argv != want_argv:
     raise SystemExit('argv mismatch; refuse stop')
 if port:
+    if not tcp_readable() or not fd_readable(pid):
+        raise SystemExit('listener socket metadata unreadable; refuse stop')
     hits = listener(port)
     mine = [h for h in hits if str(h.get('pid')) == pid]
     if hits and not mine:
         raise SystemExit('pid is not the listener; refuse stop')
-    if not hits:
-        print(json.dumps({'ok': True, 'already_gone': True, 'pid': pid}))
-        raise SystemExit(0)
+    # Empty hits while pid is alive: not listening, or this uid cannot
+    # map inodes. Do not report already_gone. Signal the captured pid.
 sig = int(spec.get('sig') or signal.SIGTERM)
 try:
     os.kill(int(pid), sig)
@@ -142,6 +169,7 @@ except PermissionError:
     raise SystemExit('os.kill permission denied; refusing docker restart')
 print(json.dumps({'ok': True, 'signaled': pid, 'sig': sig, 'via': 'os.kill'}))
 """
+STOP_PY = _PROC_HELPERS + STOP_BODY
 
 FS_PY = r"""
 import json, os, shutil, sys
@@ -248,26 +276,63 @@ def _run(cmd, **kw):
     return subprocess.run(cmd, check=True, capture_output=True, text=True, **kw)
 
 
-def capture(container: str) -> dict:
-    """Live process metadata. No environ, no logs."""
+def _capture_once(container: str, *, uid: str | None) -> dict:
     last = None
     for py in _interpreters(container):
-        r = subprocess.run(
-            ["docker", "exec", container, py, "-c", CAPTURE_PY],
-            capture_output=True, text=True, timeout=20,
-        )
+        cmd = ["docker", "exec"]
+        if uid is not None:
+            cmd += ["-u", str(uid)]
+        cmd += [container, py, "-c", CAPTURE_PY]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
         last = r
         if r.returncode == 0:
             data = json.loads(r.stdout)
             data["container"] = container
+            data["capture_uid"] = str(uid) if uid is not None else "default"
             return data
         err = (r.stderr or "") + (r.stdout or "")
         if _not_found(r.returncode, err):
             continue
-        break
+        raise SystemExit(
+            f"{container}: process capture failed ({err[:400]!r}). "
+            "Parent must provide :5555 listener argv/cwd/uid; refusing docker restart."
+        )
     err = (last.stderr or last.stdout or "")[:400] if last else "no python"
     raise SystemExit(
         f"{container}: process capture failed ({err!r}). "
+        "Parent must provide :5555 listener argv/cwd/uid; refusing docker restart."
+    )
+
+
+def capture(container: str, *, uid: str | None = None) -> dict:
+    """Live process metadata. No environ, no logs.
+
+    Probe as the captured/dashboard UID (1000), not as root. UID 0 in this
+    image does not see the UID 1000 :5555 socket; that empty view is not
+    treated as 'no listener'.
+    """
+    if uid is not None:
+        attempts: list[str | None] = [str(uid)]
+    else:
+        attempts = ["1000", None]
+    last = None
+    last_err = None
+    for u in attempts:
+        try:
+            data = _capture_once(container, uid=u)
+        except SystemExit as exc:
+            last_err = exc
+            continue
+        last = data
+        lis = data.get("listeners") or {}
+        if lis.get(str(DASHBOARD_PORT)) or lis.get(str(REVIEW_PORT)):
+            return data
+    if last is not None:
+        return last
+    if last_err:
+        raise last_err
+    raise SystemExit(
+        f"{container}: process capture failed. "
         "Parent must provide :5555 listener argv/cwd/uid; refusing docker restart."
     )
 
@@ -313,8 +378,8 @@ WantedBy=multi-user.target
 """
 
 
-def _listening(container: str, port: int) -> bool:
-    meta = capture(container)
+def _listening(container: str, port: int, *, uid: str | None = None) -> bool:
+    meta = capture(container, uid=uid)
     return bool((meta.get("listeners") or {}).get(str(port)))
 
 
@@ -335,7 +400,8 @@ def stop_listener(container: str, proc: dict, port: int, *, sig: int = SIGTERM) 
     pid = str(proc.get("pid") or "")
     if not pid.isdigit() or pid in ("0", "1"):
         raise SystemExit(f"{container}: refuse stop of pid {pid!r} (not a dashboard listener)")
-    live_meta = capture(container)
+    view_uid = str(proc.get("uid") or "1000")
+    live_meta = capture(container, uid=view_uid)
     if not pid1_is_sleep_infinity(live_meta):
         raise SystemExit(
             f"{container}: PID1 is {live_meta.get('pid1', {}).get('argv')!r}; "
@@ -348,14 +414,14 @@ def stop_listener(container: str, proc: dict, port: int, *, sig: int = SIGTERM) 
         )
     spec = {
         "pid": pid,
-        "uid": str(proc.get("uid") or live.get("uid") or ""),
+        "uid": view_uid,
         "argv": list(proc.get("argv") or live.get("argv") or []),
         "port": int(port),
         "sig": int(sig),
     }
-    # Root python so /proc/<pid>/fd is readable; identity checks bound the pid.
+    # Same UID as the listener so /proc/net and /proc/<pid>/fd are visible.
     r = exec_python(
-        container, STOP_PY, uid="0",
+        container, STOP_PY, uid=view_uid, cwd=proc.get("cwd") or live.get("cwd") or None,
         input_text=json.dumps(spec),
     )
     try:
@@ -395,22 +461,24 @@ def start_captured(container: str, proc: dict) -> None:
     _run(argv)
 
 
-def wait_listener(container: str, port: int, timeout_s: float = 30.0) -> None:
+def wait_listener(container: str, port: int, timeout_s: float = 30.0,
+                  *, uid: str | None = None) -> None:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        if _listening(container, port):
+        if _listening(container, port, uid=uid):
             return
         time.sleep(0.4)
     raise SystemExit(f"{container}: listener {port} did not return")
 
 
-def wait_listener_gone(container: str, port: int, timeout_s: float = 15.0) -> bool:
+def wait_listener_gone(container: str, port: int, timeout_s: float = 15.0,
+                       *, uid: str | None = None) -> bool:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        if not _listening(container, port):
+        if not _listening(container, port, uid=uid):
             return True
         time.sleep(0.2)
-    return not _listening(container, port)
+    return not _listening(container, port, uid=uid)
 
 
 def reload_dashboard(container: str, *, port: int = DASHBOARD_PORT) -> dict:
@@ -422,37 +490,43 @@ def reload_dashboard(container: str, *, port: int = DASHBOARD_PORT) -> dict:
             "not sleep infinity; refusing to kill PID1 or docker restart"
         )
     proc = one_listener(before, port)
+    view_uid = str(proc.get("uid") or "1000")
     stop_listener(container, proc, port, sig=SIGTERM)
-    if not wait_listener_gone(container, port, timeout_s=8.0):
+    if not wait_listener_gone(container, port, timeout_s=8.0, uid=view_uid):
         stop_listener(container, proc, port, sig=SIGKILL)
-        if not wait_listener_gone(container, port, timeout_s=7.0):
+        if not wait_listener_gone(container, port, timeout_s=7.0, uid=view_uid):
             raise SystemExit(
                 f"{container}: old listener {port} still up after os.kill; "
                 "refusing docker restart"
             )
     try:
         start_captured(container, proc)
-        wait_listener(container, port)
+        wait_listener(container, port, uid=view_uid)
     except Exception:
         start_captured(container, proc)
-        wait_listener(container, port)
-    after = capture(container)
+        wait_listener(container, port, uid=view_uid)
+    after = capture(container, uid=view_uid)
     if not pid1_is_sleep_infinity(after):
         raise SystemExit(f"{container}: PID1 changed after scoped reload")
     return {"ok": True, "container": container, "port": port, "argv": proc["argv"],
-            "docker_restart": False, "stop": "os.kill"}
+            "docker_restart": False, "stop": "os.kill", "uid": view_uid}
 
 
 def relaunch_if_sleep_pid1(container: str, saved: dict, *, port: int = DASHBOARD_PORT) -> dict:
     """After container recreate: PID1 sleep infinity will not revive the dashboard."""
-    meta = capture(container)
+    saved_uid = None
+    try:
+        saved_uid = str(one_listener(saved, port).get("uid") or "1000")
+    except SystemExit:
+        saved_uid = "1000"
+    meta = capture(container, uid=saved_uid)
     if not pid1_is_sleep_infinity(meta):
         return {"ok": True, "skipped": "pid1_not_sleep", "container": container}
     if (meta.get("listeners") or {}).get(str(port)):
         return {"ok": True, "skipped": "already_listening", "container": container}
     proc = one_listener(saved, port)
     start_captured(container, proc)
-    wait_listener(container, port)
+    wait_listener(container, port, uid=str(proc.get("uid") or saved_uid))
     return {"ok": True, "relaunched": proc["argv"], "container": container}
 
 
@@ -464,18 +538,20 @@ def start_review_server(container: str = "harvey-sss") -> dict:
     if hits:
         return {"ok": True, "skipped": "already_listening", "port": REVIEW_PORT,
                 "argv": hits[0].get("argv")}
+    dash = (meta.get("listeners") or {}).get(str(DASHBOARD_PORT)) or []
+    view_uid = str((dash[0].get("uid") if dash else None) or "1000")
     unit = "/etc/systemd/system/sss-glm-review.service"
     if os.path.exists(unit):
         subprocess.run(["systemctl", "start", "sss-glm-review.service"], check=True)
-        wait_listener(container, REVIEW_PORT)
+        wait_listener(container, REVIEW_PORT, uid=view_uid)
         return {"ok": True, "started": "systemd:sss-glm-review", "port": REVIEW_PORT}
     argv = {
         "argv": ["python3", "/app/data/sss_glm/review_server.py"],
         "cwd": "/app",
-        "uid": (meta.get("pid1") or {}).get("uid") or "1000",
+        "uid": view_uid,
     }
     start_captured(container, argv)
-    wait_listener(container, REVIEW_PORT)
+    wait_listener(container, REVIEW_PORT, uid=view_uid)
     return {"ok": True, "started": argv["argv"], "port": REVIEW_PORT}
 
 

@@ -7,6 +7,7 @@ host process. Missing ``kill`` must not be required for scoped reload.
 """
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
@@ -169,11 +170,12 @@ def test_stop_listener_uses_os_kill_when_kill_binary_absent(slim_bin, monkeypatc
     monkeypatch.setattr(pl.subprocess, "run", docker.run)
     child, proc, port = _spawn_listener()
     try:
-        def fake_capture(container):
+        def fake_capture(container, *, uid=None):
             return {
                 "container": container,
                 "pid1": {"pid": "1", "argv": ["sleep", "infinity"], "cwd": "/", "uid": "0"},
                 "listeners": {str(port): [dict(proc)]},
+                "capture_uid": uid or proc["uid"],
             }
         monkeypatch.setattr(pl, "capture", fake_capture)
         out = pl.stop_listener("harvey", proc, port)
@@ -185,6 +187,12 @@ def test_stop_listener_uses_os_kill_when_kill_binary_absent(slim_bin, monkeypatc
         assert inners
         assert all(os.path.basename(i[0]) in ("python3", "python") for i in inners if i)
         assert not any(os.path.basename(i[0]) == "kill" for i in inners if i)
+        uids = [c[c.index("-u") + 1] for c in docker.cmds if "-u" in c]
+        assert proc["uid"] in uids
+        assert not any(
+            c[c.index("-u") + 1] == "0" and proc["uid"] != "0"
+            for c in docker.cmds if "-u" in c
+        )
         # Inner PATH had no kill; STOP_PY still ran.
         assert not (slim_bin / "kill").exists()
     finally:
@@ -199,11 +207,12 @@ def test_identity_mismatch_does_not_signal(slim_bin, monkeypatch):
     child, proc, port = _spawn_listener()
     try:
         live = dict(proc)
-        def fake_capture(container):
+        def fake_capture(container, *, uid=None):
             return {
                 "container": container,
                 "pid1": {"pid": "1", "argv": ["sleep", "infinity"], "cwd": "/", "uid": "0"},
                 "listeners": {str(port): [live]},
+                "capture_uid": uid or live["uid"],
             }
         monkeypatch.setattr(pl, "capture", fake_capture)
         bad = dict(proc)
@@ -259,3 +268,59 @@ def test_rollback_and_reload_scripts_share_os_kill_path():
     assert not any(ln.strip().startswith("docker restart") for ln in rb.splitlines())
     assert "os.kill" in life
     assert '["docker", "exec", container, "kill"' not in life
+
+
+def _run_stop(code: str, proc: dict, port: int):
+    spec = {
+        "pid": proc["pid"], "uid": proc["uid"], "argv": proc["argv"],
+        "port": port, "sig": int(signal.SIGTERM),
+    }
+    return _REAL_RUN(
+        [sys.executable, "-c", code],
+        input=json.dumps(spec), capture_output=True, text=True, timeout=10,
+    )
+
+
+def test_empty_socket_view_while_pid_alive_is_not_already_gone():
+    """UID0-style empty listener() must not report already_gone; signal instead."""
+    child, proc, port = _spawn_listener()
+    try:
+        code = pl._PROC_HELPERS + "\ndef listener(port):\n    return []\n" + pl.STOP_BODY
+        r = _run_stop(code, proc, port)
+        assert r.returncode == 0, r.stderr
+        data = json.loads(r.stdout)
+        assert data.get("already_gone") is not True
+        assert data.get("via") == "os.kill"
+        child.wait(timeout=8)
+        assert child.poll() is not None
+    finally:
+        if child.poll() is None:
+            child.send_signal(signal.SIGKILL)
+            child.wait(timeout=3)
+
+
+def test_unreadable_socket_metadata_fails_closed_not_already_gone():
+    child, proc, port = _spawn_listener()
+    try:
+        code = pl._PROC_HELPERS + "\ndef tcp_readable():\n    return False\n" + pl.STOP_BODY
+        r = _run_stop(code, proc, port)
+        blob = (r.stderr or "") + (r.stdout or "")
+        assert r.returncode != 0
+        assert "unreadable" in blob
+        assert "already_gone" not in (r.stdout or "")
+        assert child.poll() is None
+    finally:
+        if child.poll() is None:
+            child.send_signal(signal.SIGTERM)
+            child.wait(timeout=3)
+
+
+def test_stop_and_capture_use_captured_uid_not_root():
+    src = Path(pl.__file__).read_text()
+    stop_fn = src.split("def stop_listener")[1].split("def stop_pid")[0]
+    assert 'uid="0"' not in stop_fn
+    assert "view_uid" in stop_fn
+    assert 'attempts = ["1000", None]' in src
+    assert "if not hits:" not in pl.STOP_BODY
+    assert "socket metadata unreadable" in pl.STOP_BODY
+    assert "wait_listener_gone" in src and "uid=view_uid" in src

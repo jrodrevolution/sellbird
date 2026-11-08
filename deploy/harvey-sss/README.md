@@ -64,7 +64,8 @@ closes on config drift. Skip it until the dry-run plan matches production.
 PID1 `sleep infinity` dashboards are captured and relaunched; Hermes `/init`
 is not given extra workers. Do not `docker restart harvey`. Slim Harvey has
 no `kill` binary: reload/rollback signal the captured listener with python
-`os.kill` after PID/UID/argv/listener identity checks.
+`os.kill` as that listener's UID (not root) after PID/UID/argv checks.
+UID 0 cannot see the UID 1000 :5555 socket; that empty view is not gone.
 
 Do not restart cloudflared. Do not SMTP-test prospects.
 
@@ -92,7 +93,8 @@ recreate, process lifecycle, file launches without PYTHONPATH, owner
 edit→new hash→approve / old-hash replay blocked, Tijuana send stats
 (unavailable not 0), review API, Studio patch anchors, fail-closed send
 guard (migration/read/unavailable DB held; verified frozen 83 still
-allowed), slim-image lifecycle (no `kill` binary; rollback scoped reload).
+allowed), slim-image lifecycle (no `kill` binary; same-UID listener
+visibility; rollback scoped reload).
 Hosts are `*.example`. No live DB, no SMTP.
 
 Runtime after parent apply (not claimed here): Access login, `/#sssglm`

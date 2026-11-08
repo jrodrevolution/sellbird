@@ -108,6 +108,8 @@ def test_lifecycle_uses_os_kill_not_kill_binary():
     assert "os.kill" in src
     assert "STOP_PY" in src
     assert "refuse pid1" in src
+    assert 'attempts = ["1000", None]' in src
+    assert "socket metadata unreadable" in src
 
 
 def test_apply_and_rollback_do_not_exec_missing_host_binaries():

@@ -56,9 +56,10 @@ The replacement:
 7. harvey and harvey-sss PID1 is `sleep infinity`. Recreate/reload captures
    the :5555 listener (argv/cwd/uid, no environ) and relaunches that argv.
    **Never `docker restart`**. Slim Harvey has python3 but no `kill`/`rm`/
-   `chown`/`sh`: scoped stop uses `os.kill` via that interpreter after
-   PID/UID/argv/listener checks, with timeout; in-container file ops use
-   the same python. Rollback uses the same path. Hermes PID1 is `/init` +
+   `chown`/`sh`: scoped stop uses `os.kill` via that interpreter as the
+   **captured UID** (dashboard is 1000; UID 0 does not see that socket).
+   Empty root `/proc` view is unreadable, not gone. PID/UID/argv checks
+   and timeout stay. Rollback uses the same path. Hermes PID1 is `/init` +
    wrapper; children are not docker-exec'd. Review :18765 starts only if empty.
 
 Send guard: GLM bind never returns allow on migration/read/unavailable DB.
