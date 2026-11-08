@@ -26,6 +26,13 @@ def _ok_pair(req=None):
     return req, parsed["subject"], parsed["body"]
 
 
+def test_sdk_exhaustion_string_is_invalid_model_output():
+    with pytest.raises(ProtocolError) as ei:
+        parse_model_json("I reached the iteration limit and couldn't generate a summary.")
+    assert ei.value.code == "invalid_model_output"
+    assert "iteration_limit" in str(ei.value)
+
+
 def test_fake_model_writes_full_email_not_an_opener_choice():
     req, subject, body = _ok_pair()
     s, b = validate_model_draft(req, subject, body)

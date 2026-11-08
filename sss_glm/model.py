@@ -10,7 +10,13 @@ from __future__ import annotations
 import json
 from typing import Protocol
 
-from sss_glm.protocol import MODEL_ID, PROVIDER, ProtocolError, model_payload
+from sss_glm.protocol import (
+    MODEL_ID,
+    PROVIDER,
+    ProtocolError,
+    is_sdk_exhaustion,
+    model_payload,
+)
 from sss_glm.untrusted import fence
 
 SYSTEM = (
@@ -27,15 +33,23 @@ SYSTEM = (
     "unsubscribe text, a postal address, prices, paid fixes, dollar amounts, or "
     "the words safe, guaranteed, urgent, hacked, malware, breach.\n"
     "Do not invent issues, results, contacts, or timelines. Subject is not a reply "
-    "(no Re: or Fwd:), under 80 characters. JSON only."
+    "(no Re: or Fwd:), under 80 characters. Never call tools. JSON only."
 )
+
+# Hermes AIAgent.chat is a tool-calling loop. max_iterations=1 spends the only
+# turn on a tool/think pass, then handle_max_iterations asks for a summary and
+# can return the English fallback instead of JSON. Default SDK cap is 60.
+# Keep a small finite bound: enough for think/tool-miss then JSON, not a roam.
+MAX_AGENT_ITERATIONS = 8
+MAX_COMPLETION_TOKENS = 1536
 
 HERMES_KW = dict(
     model=MODEL_ID,
     provider=PROVIDER,
     enabled_toolsets=[],
-    max_iterations=1,
-    max_tokens=500,
+    tools=[],
+    max_iterations=MAX_AGENT_ITERATIONS,
+    max_tokens=MAX_COMPLETION_TOKENS,
     quiet_mode=True,
     skip_memory=True,
     skip_context_files=True,
@@ -83,11 +97,36 @@ def _isolation_kwargs(init):
     return {k: v for k, v in HERMES_KW.items() if k in names}
 
 
+def _chat_text(raw) -> str:
+    if type(raw) is str:
+        return raw
+    raise ProtocolError("invalid_model_output", "type")
+
+
+def sanitize_sdk_diag(agent) -> dict:
+    """Finish/turn counters only. Never messages, env, keys, or memory."""
+    out = {}
+    for key in (
+        "model", "max_iterations", "max_tokens", "api_call_count",
+        "iteration", "current_iteration",
+    ):
+        if not hasattr(agent, key):
+            continue
+        val = getattr(agent, key)
+        if isinstance(val, (int, str, bool)) or val is None:
+            out[key] = val
+    reason = getattr(agent, "last_finish_reason", None)
+    if isinstance(reason, str) and len(reason) < 80:
+        out["finish_reason"] = reason
+    return out
+
+
 class HermesRunner:
     """Official SDK in the Hermes container. Isolation is proven before generate()."""
 
     def __init__(self, agent=None):
         self._agent = agent
+        self.last_diag = {}
 
     def _build(self):
         if self._agent is not None:
@@ -127,7 +166,7 @@ class HermesRunner:
             + fence(json.dumps(payload, sort_keys=True), "sss-glm-request")
             + "\nAllowed finding meaning (operator text, not a website): "
             + json.dumps(payload.get("finding_meaning", ""))
-            + "\nWrite the JSON email now."
+            + "\nWrite the JSON email now. Do not call tools."
         )
         try:
             import contextlib, io
@@ -135,10 +174,15 @@ class HermesRunner:
             with contextlib.redirect_stdout(buf):
                 raw = agent.chat(user)
         except Exception as e:
+            self.last_diag = sanitize_sdk_diag(agent)
             raise ProtocolError("model_unavailable", "chat") from e
-        if type(raw) is not str:
-            raise ProtocolError("invalid_model_output", "type")
-        return raw
+        text = _chat_text(raw)
+        self.last_diag = sanitize_sdk_diag(agent)
+        self.last_diag["tools_empty"] = True
+        self.last_diag["exhausted"] = is_sdk_exhaustion(text)
+        if is_sdk_exhaustion(text):
+            raise ProtocolError("invalid_model_output", "iteration_limit")
+        return text
 
 
 def prompt_payload(req: dict) -> dict:

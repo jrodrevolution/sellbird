@@ -117,6 +117,24 @@ def test_suppression_and_mismatch_fail_closed(channel):
     assert ei.value.code == "suppression"
 
 
+def test_sdk_iteration_exhaustion_is_held_no_outbox(channel):
+    client, worker, *_ = channel
+    worker.model = FakeModel(
+        raw="I reached the iteration limit and couldn't generate a summary."
+    )
+    c = connect()
+    seed_prospect(c)
+    seed_proof(c, "dental.example", "DMARC")
+    with pytest.raises(ProtocolError) as ei:
+        draft_email(
+            c, host="dental.example", first="", category="dental", finding="DMARC",
+            to_email="owner@dental.example", prospect_id="p1", client=client,
+            process_hook=worker.process_once, finalize=fake_finalize, write_outbox=True,
+        )
+    assert ei.value.code == "invalid_model_output"
+    assert c.execute("select count(*) from outbox").fetchone()[0] == 0
+
+
 def test_injection_in_model_output_is_held(channel):
     client, worker, req, resp, led = channel
     worker.model = FakeModel(raw='{"subject":"quick note on dental.example",'

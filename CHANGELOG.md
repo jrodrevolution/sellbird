@@ -27,6 +27,10 @@ minor versions can still change behaviour.
   Scoped dashboard reload uses python `os.kill` as the captured UID
   (slim Harvey has no `kill` binary; UID 0 cannot see the UID 1000
   listener). Rollback uses the same path. Never `docker exec … kill`.
+  Hermes SDK generation uses a finite 8-iteration / 1536-token bound so
+  `z-ai/glm-5.3-flash` can emit JSON subject/body; iteration-limit fallback
+  text is held. Standalone no-recipient synthetic accept runs inside
+  hermes-agent before recreate.
   See `deploy/harvey-sss/README.md` and `deploy/harvey-sss/SCOPE.md`.
 
 ### Changed

@@ -80,6 +80,9 @@ def test_hermes_kwargs_drop_unknown_but_require_isolation():
     assert kw["enabled_toolsets"] == []
     assert kw["skip_memory"] is True
     assert kw["fallback_model"] == {}
+    assert kw["max_iterations"] == 8
+    assert 1 < kw["max_iterations"] <= 16
+    assert kw["max_tokens"] == 1536
     assert "load_soul_identity" not in kw  # dropped when the SDK has no such arg
     assert set(kw) <= set(HERMES_KW)
 

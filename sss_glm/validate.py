@@ -27,6 +27,7 @@ from sss_glm.protocol import (
     MAX_MODEL_RAW,
     MAX_SUBJECT_LEN,
     ProtocolError,
+    is_sdk_exhaustion,
     model_payload,
 )
 
@@ -43,6 +44,8 @@ def parse_model_json(raw: str) -> dict:
     if type(raw) is not str:
         raise ProtocolError("invalid_model_output", "type")
     text = _clean(raw).strip()
+    if is_sdk_exhaustion(text):
+        raise ProtocolError("invalid_model_output", "iteration_limit")
     if len(text) > MAX_MODEL_RAW:
         raise ProtocolError("invalid_model_output", "oversize")
     text = _FENCE.sub("", text).strip()

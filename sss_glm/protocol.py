@@ -25,6 +25,12 @@ PROVIDER = "openrouter"
 MAX_REQUEST_BYTES = 2048
 MAX_RESPONSE_BYTES = 8192
 MAX_MODEL_RAW = 4000
+# Hermes AIAgent.chat fallback when the tool-loop hits max_iterations
+# and the summary pass is empty. Not valid email JSON.
+SDK_EXHAUSTION_MARKERS = (
+    "I reached the iteration limit and couldn't generate a summary.",
+    "I reached the maximum iterations",
+)
 MAX_SUBJECT_LEN = 80
 MAX_BODY_CHARS = 2500
 PROOF_MAX_AGE = timedelta(seconds=900)
@@ -53,6 +59,13 @@ class ProtocolError(ValueError):
     def __init__(self, code: str, detail: str = ""):
         self.code = code
         super().__init__(code if not detail else f"{code}: {detail}")
+
+
+def is_sdk_exhaustion(text: str) -> bool:
+    if type(text) is not str or not text.strip():
+        return False
+    blob = text.strip()
+    return any(m in blob for m in SDK_EXHAUSTION_MARKERS)
 
 
 def new_id() -> str:

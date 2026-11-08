@@ -39,6 +39,10 @@ On the VPS, from the staged tree, as root. Default is dry-run. No prospect
 sends.
 
 ```
+# 0. Model check FIRST (hermes-agent, example.com, no recipient, no outbox,
+#    no jobs file, approved scripts untouched). Expect JSON subject/body.
+bash host/synthetic-glm-accept.sh
+
 # 1. Worker files only (no container recreate)
 bash host/apply-vps.sh
 bash host/apply-vps.sh --apply
@@ -94,7 +98,8 @@ edit→new hash→approve / old-hash replay blocked, Tijuana send stats
 (unavailable not 0), review API, Studio patch anchors, fail-closed send
 guard (migration/read/unavailable DB held; verified frozen 83 still
 allowed), slim-image lifecycle (no `kill` binary; same-UID listener
-visibility; rollback scoped reload).
+visibility; rollback scoped reload), SDK iteration exhaustion held and
+valid full-copy JSON parse.
 Hosts are `*.example`. No live DB, no SMTP.
 
 Runtime after parent apply (not claimed here): Access login, `/#sssglm`
