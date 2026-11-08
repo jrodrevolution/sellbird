@@ -30,7 +30,9 @@ minor versions can still change behaviour.
   Hermes SDK generation uses a finite 8-iteration / 1536-token bound so
   `z-ai/glm-5.3-flash` can emit JSON subject/body; iteration-limit fallback
   text is held. Standalone no-recipient synthetic accept runs inside
-  hermes-agent before recreate.
+  hermes-agent before recreate. Prompt, validator, and compose share one
+  50–75 word generated-body budget (scan URL/footer outside it). Actionable
+  remediation hints are held; observed finding explanations are allowed.
   See `deploy/harvey-sss/README.md` and `deploy/harvey-sss/SCOPE.md`.
 
 ### Changed

@@ -40,7 +40,8 @@ sends.
 
 ```
 # 0. Model check FIRST (hermes-agent, example.com, no recipient, no outbox,
-#    no jobs file, approved scripts untouched). Expect JSON subject/body.
+#    no jobs file, approved scripts untouched). Expect JSON subject/body,
+#    50-75 generated words, no remediation/DNS how-to. Scan URL is composed later.
 bash host/synthetic-glm-accept.sh
 
 # 1. Worker files only (no container recreate)
@@ -98,8 +99,9 @@ edit→new hash→approve / old-hash replay blocked, Tijuana send stats
 (unavailable not 0), review API, Studio patch anchors, fail-closed send
 guard (migration/read/unavailable DB held; verified frozen 83 still
 allowed), slim-image lifecycle (no `kill` binary; same-UID listener
-visibility; rollback scoped reload), SDK iteration exhaustion held and
-valid full-copy JSON parse.
+visibility; rollback scoped reload), SDK iteration exhaustion held,
+valid full-copy JSON parse, 73-word observation in the shared 50–75
+budget, and actionable remediation hints held.
 Hosts are `*.example`. No live DB, no SMTP.
 
 Runtime after parent apply (not claimed here): Access login, `/#sssglm`

@@ -33,12 +33,52 @@ def test_sdk_exhaustion_string_is_invalid_model_output():
     assert "iteration_limit" in str(ei.value)
 
 
+def _pad_observation(body: str, n: int) -> str:
+    words = body.split()
+    filler = ["This", "is", "only", "the", "observed", "public", "finding"]
+    i = 0
+    while len(words) < n:
+        words.append(filler[i % len(filler)])
+        i += 1
+    return " ".join(words[:n])
+
+
 def test_fake_model_writes_full_email_not_an_opener_choice():
     req, subject, body = _ok_pair()
     s, b = validate_model_draft(req, subject, body)
     assert "dmarc" in b.lower() and "dental.example" in b and "dental.example" in s
     assert "variant" not in b.lower()
-    assert len(b.split()) >= 45
+    from sss_glm.protocol import MODEL_BODY_MIN_WORDS, MODEL_BODY_MAX_WORDS
+    assert MODEL_BODY_MIN_WORDS <= len(b.split()) <= MODEL_BODY_MAX_WORDS
+
+
+def test_seventy_three_word_observation_is_in_budget():
+    req, subject, body = _ok_pair()
+    body73 = _pad_observation(body, 73)
+    assert len(body73.split()) == 73
+    s, b = validate_model_draft(req, subject, body73)
+    assert "dmarc" in b.lower() and len(b.split()) == 73
+
+
+def test_actionable_remediation_hint_is_held_even_in_budget():
+    req, subject, body = _ok_pair()
+    hint = "Publishing a DMARC record is a simple DNS change."
+    core = _pad_observation(body, 63) + " " + hint
+    assert 50 <= len(core.split()) <= 75
+    with pytest.raises(ProtocolError) as ei:
+        validate_model_draft(req, subject, core)
+    assert ei.value.code == "invented_claim"
+    assert "remediation" in str(ei.value)
+
+
+def test_allowed_finding_meaning_is_not_remediation():
+    from sss_glm.claims import FINDING_MEANING, BANNED_REMEDIATION
+    import re
+    req, subject, body = _ok_pair()
+    assert "no DMARC record" in body or "dmarc" in body.lower()
+    validate_model_draft(req, subject, body)
+    for meaning in FINDING_MEANING.values():
+        assert re.search(BANNED_REMEDIATION, meaning, re.I) is None
 
 
 def test_invented_breach_and_price_fail_closed():

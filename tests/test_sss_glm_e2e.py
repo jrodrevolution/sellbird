@@ -117,6 +117,63 @@ def test_suppression_and_mismatch_fail_closed(channel):
     assert ei.value.code == "suppression"
 
 
+def _observation_raw(n_words: int, extra: str = "") -> str:
+    import json
+    from sss_glm.fakes import FakeModel
+    from sss_glm.protocol import model_payload
+    parsed = json.loads(FakeModel().generate(model_payload({
+        "domain": "dental.example", "finding": "DMARC", "category": "dental",
+    })))
+    words = parsed["body"].split()
+    filler = ["This", "is", "only", "the", "observed", "public", "finding"]
+    i = 0
+    target = n_words - len(extra.split()) if extra else n_words
+    while len(words) < target:
+        words.append(filler[i % len(filler)])
+        i += 1
+    body = " ".join(words[:target])
+    if extra:
+        body = body + " " + extra
+    return json.dumps({"subject": parsed["subject"], "body": body})
+
+
+def test_seventy_three_word_full_copy_pending_review(channel):
+    client, worker, *_ = channel
+    worker.model = FakeModel(raw=_observation_raw(73))
+    c = connect()
+    seed_prospect(c)
+    seed_proof(c, "dental.example", "DMARC")
+    d = draft_email(
+        c, host="dental.example", first="", category="dental", finding="DMARC",
+        to_email="owner@dental.example", prospect_id="p1", client=client,
+        process_hook=worker.process_once, finalize=fake_finalize, write_outbox=True,
+    )
+    assert d.outbox_id
+    row = c.execute("select status, body from outbox where id=?", (d.outbox_id,)).fetchone()
+    assert row["status"] == "pending_review"
+    assert "sitesafetyscan.com/?url=dental.example" in row["body"]
+    from sss_glm.compose import generated_word_count
+    assert generated_word_count(row["body"]) == 73
+
+
+def test_remediation_hint_held_no_outbox_even_at_budget(channel):
+    client, worker, *_ = channel
+    worker.model = FakeModel(raw=_observation_raw(
+        73, extra="Publishing a DMARC record is a simple DNS change.",
+    ))
+    c = connect()
+    seed_prospect(c)
+    seed_proof(c, "dental.example", "DMARC")
+    with pytest.raises(ProtocolError) as ei:
+        draft_email(
+            c, host="dental.example", first="", category="dental", finding="DMARC",
+            to_email="owner@dental.example", prospect_id="p1", client=client,
+            process_hook=worker.process_once, finalize=fake_finalize, write_outbox=True,
+        )
+    assert ei.value.code in ("invented_claim", "invalid_model_output")
+    assert c.execute("select count(*) from outbox").fetchone()[0] == 0
+
+
 def test_sdk_iteration_exhaustion_is_held_no_outbox(channel):
     client, worker, *_ = channel
     worker.model = FakeModel(

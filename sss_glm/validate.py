@@ -14,6 +14,7 @@ import unicodedata
 
 from sss_glm.claims import (
     BANNED_CLAIM,
+    BANNED_REMEDIATION,
     BANNED_REPLY_SUBJECT,
     EMAIL_IN_MODEL,
     FOREIGN_FINDING_MARKERS,
@@ -26,9 +27,12 @@ from sss_glm.protocol import (
     MAX_BODY_CHARS,
     MAX_MODEL_RAW,
     MAX_SUBJECT_LEN,
+    MODEL_BODY_MAX_WORDS,
+    MODEL_BODY_MIN_WORDS,
     ProtocolError,
     is_sdk_exhaustion,
     model_payload,
+    word_count,
 )
 
 _INVISIBLE = re.compile("[\u00ad\u200b-\u200d\u2060\ufeff]")
@@ -99,6 +103,8 @@ def validate_model_draft(req: dict, subject: str, body: str) -> tuple[str, str]:
         raise ProtocolError("invented_claim", "placeholder")
     if re.search(BANNED_CLAIM, subject + "\n" + body, re.I):
         raise ProtocolError("banned_claim")
+    if re.search(BANNED_REMEDIATION, subject + "\n" + body, re.I):
+        raise ProtocolError("invented_claim", "remediation")
     low = (subject + "\n" + body).lower()
     for token in REQUIRED_TOKENS[finding]:
         if token not in low:
@@ -109,8 +115,8 @@ def validate_model_draft(req: dict, subject: str, body: str) -> tuple[str, str]:
         for marker in markers:
             if marker in low:
                 raise ProtocolError("invented_claim", "other_finding")
-    words = body.split()
-    if not 45 <= len(words) <= 70:
+    n = word_count(body)
+    if not MODEL_BODY_MIN_WORDS <= n <= MODEL_BODY_MAX_WORDS:
         raise ProtocolError("invalid_model_output", "words")
     # Prompt-injection leftovers: a model that followed planted instructions
     # typically copies them. Reject directive leftovers in the draft.

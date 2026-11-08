@@ -336,11 +336,26 @@ def write_email(c, host, first, nich, f, to_email="", pid="", client=None, proce
     )
     return d.body, d.learned, d.subject, d.request_id
 
-def check_rules(body):
-    w = len(body.split()); bad = []
-    if not 50 <= w <= 80: bad.append(f"{w} words (need 50-80)")
+def check_rules(body, *, generated_only=False):
+    from sss_glm.claims import BANNED_REMEDIATION
+    from sss_glm.compose import generated_word_count
+    from sss_glm.protocol import (
+        COMPOSED_MAX_WORDS, COMPOSED_MIN_WORDS,
+        MODEL_BODY_MAX_WORDS, MODEL_BODY_MIN_WORDS,
+    )
+    if generated_only:
+        w = generated_word_count(body)
+        lo, hi = MODEL_BODY_MIN_WORDS, MODEL_BODY_MAX_WORDS
+        need = f"{lo}-{hi} generated"
+    else:
+        w = len((body or "").split("\n\n--")[0].split())
+        lo, hi = COMPOSED_MIN_WORDS, COMPOSED_MAX_WORDS
+        need = f"{lo}-{hi}"
+    bad = []
+    if not lo <= w <= hi: bad.append(f"{w} words (need {need})")
     if re.search(r"full report", body, re.I): bad.append("mentions 'full report'")
     if re.search(r"\b(safe|hackproof|hack-proof|guarantee)\b", body, re.I): bad.append("forbidden claim word")
+    if re.search(BANNED_REMEDIATION, body or "", re.I): bad.append("remediation hint")
     if "sitesafetyscan.com/?url=" not in body: bad.append("missing free scan link")
     return w, bad
 
@@ -439,7 +454,7 @@ def build(c, lead, scan_json, write_outbox=False, cap_state=None):
         body, cat, subject, request_id = write_email(c, host, first, nich, f, to_email=facts["email"], pid=pid)
     except Exception as e:
         log(c, pid, host, "draft", "hold", "GLM hold: " + str(e)[:160]); return {"host": host, "brief": brief, "email": None, "pid": pid}
-    w, bad = check_rules(body)
+    w, bad = check_rules(body, generated_only=True)
     if bad: log(c, pid, host, "draft", "hold", "; ".join(bad)); return {"host": host, "brief": brief, "email": None, "pid": pid}
     log(c, pid, host, "draft", "drafted" if write_outbox else "drafted-dryrun", f"finding {f['check']} with proof {f['proof_url']}", {"words": w, "learned_line": cat or None, "to": facts["email"]})
     return {"host": host, "brief": brief, "email": body, "subject": subject, "request_id": request_id, "to": facts["email"], "words": w, "pid": pid, "finding": f}

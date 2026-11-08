@@ -67,6 +67,31 @@ BANNED_CLAIM = (
     r"|\$\s*\d+|\b29\b|\b9/month\b|\b9 per month\b"
 )
 
+# DIY / how-to hints. Observation text in FINDING_MEANING must not match.
+# "no DMARC record" is allowed; "Publishing a DMARC record is a simple DNS
+# change" is held. Risk-only outreach: name the finding, invite a free check.
+BANNED_REMEDIATION = (
+    r"\b(?:publish(?:ing)?|add(?:ing)?(?:\s+a)?|create(?:ing)?(?:\s+a)?|"
+    r"enabl(?:e|ing)|set\s*up|configur(?:e|ing)|install(?:ing)?|"
+    r"upgrad(?:e|ing)|remov(?:e|ing)|disabl(?:e|ing)|delet(?:e|ing))\b"
+    r".{0,48}\b(?:dmarc|spf|dkim|dns|xmlrpc|readme\.html|php)\b"
+    r"|"
+    r"\b(?:simple|easy|quick)\s+(?:dns\s+)?(?:change|fix|update)\b"
+    r"|"
+    r"\bdns\s+change\b"
+    r"|"
+    r"\btxt\s+record\b"
+    r"|"
+    r"\b(?:you\s+should|you\s+can\s+just|just)\s+"
+    r"(?:add|publish|set|enable|fix|update|upgrade|remove|disable|redirect|configure)\b"
+    r"|"
+    r"\bhow\s+to\s+(?:fix|add|publish|enable|set)\b"
+    r"|"
+    r"\bfix\s+(?:it|this|that)\s+by\b"
+    r"|"
+    r"\bredirect\s+(?:http|your\s+site|visitors)\b"
+)
+
 BANNED_REPLY_SUBJECT = r"(?i)^\s*(re|fwd|fw)\s*:"
 URL_IN_MODEL = r"https?://|\bwww\."
 EMAIL_IN_MODEL = r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"

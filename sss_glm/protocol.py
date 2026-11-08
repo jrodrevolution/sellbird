@@ -33,6 +33,14 @@ SDK_EXHAUSTION_MARKERS = (
 )
 MAX_SUBJECT_LEN = 80
 MAX_BODY_CHARS = 2500
+# Generated body only. Scan URL, signature, CAN-SPAM footer and unsub are
+# composed after validation and do not count against this window.
+MODEL_BODY_MIN_WORDS = 50
+MODEL_BODY_MAX_WORDS = 75
+# compose.py appends "The free results are at {url}" (URL is one token).
+AUTHORITATIVE_SCAN_LINE_WORDS = 6
+COMPOSED_MIN_WORDS = MODEL_BODY_MIN_WORDS
+COMPOSED_MAX_WORDS = MODEL_BODY_MAX_WORDS + AUTHORITATIVE_SCAN_LINE_WORDS
 PROOF_MAX_AGE = timedelta(seconds=900)
 REQUEST_MAX_AGE = timedelta(seconds=900)
 CLOCK_SKEW = timedelta(seconds=5)
@@ -59,6 +67,10 @@ class ProtocolError(ValueError):
     def __init__(self, code: str, detail: str = ""):
         self.code = code
         super().__init__(code if not detail else f"{code}: {detail}")
+
+
+def word_count(text: str) -> int:
+    return len((text or "").split())
 
 
 def is_sdk_exhaustion(text: str) -> bool:

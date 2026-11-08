@@ -67,12 +67,15 @@ Non-legacy rows without a verified GLM hash are held. Frozen 83 may send
 only after `legacy_permission.permitted` exact-hash on the frozen manifest,
 not via a global True fallback.
 
-Hermes `AIAgent.chat` is a tool-calling loop. `max_iterations=1` spends the
-only turn, then the SDK summary fallback can return
-"I reached the iteration limit and couldn't generate a summary." instead of
-JSON. Bound is 8 iterations / 1536 tokens, tools still empty, no paid
-fallback, no memory. Run `host/synthetic-glm-accept.sh` on hermes-agent
-(example.com, no recipient) **before** recreate. Exhaustion stays fail-closed.
+Hermes `AIAgent.chat` is a tool-calling loop. Bound is 8 iterations / 1536
+tokens, tools still empty, no paid fallback, no memory. Generated body is
+**50–75 words** from one source of truth (`MODEL_BODY_MIN_WORDS` /
+`MODEL_BODY_MAX_WORDS`): prompt, validator, and enqueue all use it. Scan
+URL, signature, and footer are composed after and do not shrink that
+window. 73-word observation copy is in budget. Actionable remediation
+("Publishing a DMARC record is a simple DNS change.") is held. Risk-only:
+name the observed finding, invite a free public check; no DIY steps, no
+paid pitch. Run `host/synthetic-glm-accept.sh` **before** recreate.
 
 `--recreate` still requires `SSS_GLM_CONFIRM_RECREATE=harvey-sss-only`.
 Do not restart cloudflared, DMTC, or the independent Hermes report job

@@ -14,10 +14,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sss_glm.bind import migrate as bind_migrate, record_item
-from sss_glm.claims import BANNED_CLAIM, CATEGORIES, FINDINGS
+from sss_glm.claims import BANNED_CLAIM, BANNED_REMEDIATION, CATEGORIES, FINDINGS
 from sss_glm.client import ChannelError, Client, digest_of
-from sss_glm.compose import compose
+from sss_glm.compose import compose, generated_word_count
 from sss_glm.protocol import (
+    MODEL_BODY_MAX_WORDS,
+    MODEL_BODY_MIN_WORDS,
     MODEL_ID,
     ProtocolError,
     iso_now,
@@ -26,7 +28,9 @@ from sss_glm.protocol import (
 )
 from sss_glm.validate import validate_model_draft
 
-BANNED_COMPOSED = re.compile(BANNED_CLAIM, re.I)
+BANNED_COMPOSED = re.compile(
+    "(?:" + BANNED_CLAIM + ")|(?:" + BANNED_REMEDIATION + ")", re.I
+)
 
 
 @dataclass
@@ -71,8 +75,7 @@ def blocked(c, pid: str, email: str) -> str:
 
 
 def _word_count(body: str) -> int:
-    main = (body or "").split("\n\n--")[0]
-    return len(main.split())
+    return generated_word_count(body)
 
 
 def draft_email(
@@ -128,7 +131,7 @@ def draft_email(
     if BANNED_COMPOSED.search(composed.subject + "\n" + composed.body):
         raise ProtocolError("banned_claim")
     words = _word_count(composed.body)
-    if not 50 <= words <= 80:
+    if not MODEL_BODY_MIN_WORDS <= words <= MODEL_BODY_MAX_WORDS:
         raise ProtocolError("invalid_model_output", "words")
     if compose_scan_mismatch(composed.body, host):
         raise ProtocolError("mismatch", "scan_link")

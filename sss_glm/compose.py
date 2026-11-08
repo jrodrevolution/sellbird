@@ -11,12 +11,20 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from sss_glm.protocol import ProtocolError
+from sss_glm.protocol import (
+    AUTHORITATIVE_SCAN_LINE_WORDS,
+    ProtocolError,
+    word_count,
+)
 
 SCAN_ORIGIN = "https://sitesafetyscan.com"
 SCAN_QUERY = SCAN_ORIGIN + "/?url="
+SCAN_LINE_PREFIX = "The free results are at "
 # Sign-off, CAN-SPAM footer and unsubscribe are added by finalize() outside
 # the model (production: harvey.unsub.render + CANSPAM_FOOTER).
+_SCAN_LINE_TAIL = re.compile(
+    r"\n\nThe free results are at https://sitesafetyscan\.com/\?url=\S+\s*$"
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +36,26 @@ class Composed:
 
 def scan_url_for(domain: str) -> str:
     return SCAN_QUERY + domain
+
+
+def scan_line_for(domain: str) -> str:
+    return SCAN_LINE_PREFIX + scan_url_for(domain)
+
+
+def strip_authoritative(body: str) -> str:
+    """Drop footer and the composed scan line. Generated copy remains intact."""
+    text = (body or "").split("\n\n--")[0].rstrip()
+    return _SCAN_LINE_TAIL.sub("", text).rstrip()
+
+
+def generated_word_count(body: str) -> int:
+    return word_count(strip_authoritative(body))
+
+
+def assert_scan_line_budget() -> None:
+    n = word_count(scan_line_for("example.com"))
+    if n != AUTHORITATIVE_SCAN_LINE_WORDS:
+        raise ProtocolError("compose_budget", "scan_line")
 
 
 def greeting(first: str | None) -> str:
@@ -46,6 +74,7 @@ def compose(*, domain: str, first: str | None, subject: str, body: str,
     """
     if "://" in domain or "/" in domain or " " in domain:
         raise ProtocolError("domain")
+    assert_scan_line_budget()
     url = scan_url_for(domain)
     text = body.strip()
     # Authoritative greeting: replace a leading Hi there, if present.
@@ -54,7 +83,7 @@ def compose(*, domain: str, first: str | None, subject: str, body: str,
     if not text.startswith("Hi "):
         text = hi + " " + text
     if url not in text:
-        text = text.rstrip() + f"\n\nThe free results are at {url}"
+        text = text.rstrip() + "\n\n" + scan_line_for(domain)
     extra = re.findall(r"https?://[^\s]+", text)
     allowed = {url}
     if any(link.rstrip(").,") not in allowed for link in extra):
