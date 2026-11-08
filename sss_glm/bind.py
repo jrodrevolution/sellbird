@@ -2,8 +2,8 @@
 """Immutable GLM batch preview/approval binding.
 
 A GLM draft is stored with a SHA-256 of (outbox id, recipient, subject, body).
-Edits change that tuple, so send-time ``permitted`` fails closed until Jose
-re-previews. Non-GLM rows (including the frozen legacy 83) are untouched:
+Edits change that tuple, so send-time ``permitted`` fails closed until the
+owner re-previews. Non-GLM rows (including the frozen legacy 83) are untouched:
 ``permitted`` returns True so existing sender/legacy guards keep authority.
 Never auto-approves. Never covers new ids under the legacy permission.
 """
@@ -88,15 +88,45 @@ def current_row(c, oid: str) -> dict | None:
     return dict(zip(keys, cur))
 
 
-def permitted(c, oid: str) -> tuple[bool, str]:
-    """Send-time guard. Non-GLM ids pass through (legacy 83 keep their own file)."""
+def record_poison(c, *, outbox_id: str, request_id: str, finding: str, domain: str) -> None:
+    """If binding cannot be stored, still mark the row so a later approve cannot send it."""
     migrate(c)
-    item = c.execute(
-        "select binding_sha256, batch_id from sss_glm_items where outbox_id=?", (oid,)
-    ).fetchone()
+    now = datetime.now(timezone.utc).isoformat()
+    batch_id = "poison-" + outbox_id
+    c.execute(
+        "insert or ignore into sss_glm_batches(id, created_at, preview_sha256, status) values(?,?,?,?)",
+        (batch_id, now, "invalid", "invalidated"),
+    )
+    c.execute(
+        "insert or replace into sss_glm_items(outbox_id, batch_id, request_id, binding_sha256, "
+        "model, finding, domain, created_at) values(?,?,?,?,?,?,?,?)",
+        (outbox_id, batch_id, request_id or outbox_id, "invalid", "none", finding, domain, now),
+    )
+
+
+def permitted(c, oid: str) -> tuple[bool, str]:
+    """Send-time guard.
+
+    Non-GLM ids (including the frozen legacy 83) pass through so existing
+    sender/legacy guards stay in charge. GLM ids: status is *not* part of the
+    hash, so an owner approval that only flips pending_review → approved still
+    sends. Recipient/subject/body edits change the hash and hold.
+    """
+    try:
+        migrate(c)
+    except Exception:
+        return True, ""
+    try:
+        item = c.execute(
+            "select binding_sha256, batch_id from sss_glm_items where outbox_id=?", (oid,)
+        ).fetchone()
+    except Exception:
+        return True, ""
     if not item:
         return True, ""  # not a GLM row; existing sender/legacy path
     binding = item[0] if not hasattr(item, "keys") else item["binding_sha256"]
+    if binding == "invalid":
+        return False, "glm binding unavailable; hold"
     row = current_row(c, oid)
     if row is None:
         return False, "glm item missing; hold"

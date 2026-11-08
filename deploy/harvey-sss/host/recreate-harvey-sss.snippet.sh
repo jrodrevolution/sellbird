@@ -1,6 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# Extra bind mounts only. Parent must reuse the existing harvey-sss:v3
+# Extra bind mounts only. Echo-only. Never targets container "harvey".
+# Parent must reuse the existing harvey-sss:v3
 # recreate command (uid 1000, sleep infinity) and KEEP the three current mounts:
 #   /opt/harvey-sss/data            -> /app/data              RW
 #   /opt/harvey-sss/harvey.local.yaml -> /app/harvey.local.yaml RW

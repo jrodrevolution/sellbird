@@ -18,6 +18,8 @@ from collections import Counter
 from zoneinfo import ZoneInfo
 PT = ZoneInfo("America/Los_Angeles")
 DATA = "/app/data"; DB = DATA + "/harvey.db"
+if DATA not in sys.path:
+    sys.path.insert(0, DATA)
 SCAN_API = "https://sitesafetyscan.com/api/scan?url="
 UA = "Mozilla/5.0 (compatible; SiteSafetyScanOutreach/1.0)"
 FOLLOWUP_DAYS = 30
@@ -468,6 +470,12 @@ def queue(c, leads):
                         to_email=r["to"], subject=subj, body=body, finding=f["check"],
                         domain=L["host"], model="z-ai/glm-5.3-flash")
         except Exception:
+            try:
+                from sss_glm.bind import record_poison
+                record_poison(c, outbox_id=oid, request_id=r.get("request_id") or oid,
+                              finding=f["check"], domain=L["host"])
+            except Exception:
+                pass
             c.execute("update outbox set status='held', error=? where id=?",
                       ("GLM hold: binding unavailable", oid))
             continue

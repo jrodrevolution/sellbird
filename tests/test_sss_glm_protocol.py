@@ -64,3 +64,29 @@ def test_oversized_request_rejected():
     with pytest.raises(ProtocolError) as ei:
         parse_request(raw, now=NOW)
     assert ei.value.code == "request_size"
+
+
+def test_hermes_kwargs_drop_unknown_but_require_isolation():
+    from sss_glm.model import HERMES_KW, _isolation_kwargs, ProtocolError as PE
+
+    class Probe:
+        def __init__(self, model, provider, enabled_toolsets, skip_memory,
+                     skip_context_files, save_trajectories, fallback_model,
+                     max_iterations, max_tokens, quiet_mode=True,
+                     ephemeral_system_prompt=None):
+            pass
+
+    kw = _isolation_kwargs(Probe.__init__)
+    assert kw["enabled_toolsets"] == []
+    assert kw["skip_memory"] is True
+    assert kw["fallback_model"] == {}
+    assert "load_soul_identity" not in kw  # dropped when the SDK has no such arg
+    assert set(kw) <= set(HERMES_KW)
+
+    class TooOpen:
+        def __init__(self, model="x"):
+            pass
+
+    with pytest.raises(PE) as ei:
+        _isolation_kwargs(TooOpen.__init__)
+    assert ei.value.code == "model_unavailable"

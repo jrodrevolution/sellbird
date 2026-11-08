@@ -13,8 +13,9 @@ minor versions can still change behaviour.
   Future dental/law/accounting outreach is written as a full subject and body
   by Hermes `z-ai/glm-5.3-flash` (OpenRouter) through a least-privilege
   request/response channel. SSS holds no model keys. Drafts are
-  `pending_review` or `held` only; Jose reviews them in the existing Outbox.
-  See `deploy/harvey-sss/README.md`.
+  `pending_review` or `held` only. This overlay does not replace the custom
+  Harvey web app and does not wire GLM drafts into it. See
+  `deploy/harvey-sss/README.md` and `deploy/harvey-sss/SCOPE.md`.
 
 ### Changed
 

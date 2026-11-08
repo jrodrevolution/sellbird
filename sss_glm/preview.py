@@ -43,7 +43,7 @@ def preview(c, batch_id: str | None = None) -> dict:
                 (oid,),
             ).fetchone()
             ok, why = permitted(c, oid)
-            items.append({
+            item = {
                 "outbox_id": oid,
                 "request_id": row[1],
                 "binding_sha256": row[2],
@@ -52,29 +52,64 @@ def preview(c, batch_id: str | None = None) -> dict:
                 "status": None if cur is None else cur[4],
                 "matches_binding": ok,
                 "hold_reason": why,
-            })
+            }
+            if cur is not None:
+                item["subject"] = cur[2]
+                item["body"] = cur[3]
+            items.append(item)
         out.append({
             "batch_id": bid,
             "created_at": b[1],
             "preview_sha256": b[2],
             "status": b[3],
             "items": items,
-            "review": (
-                "Existing Harvey/Sellbird dashboard Outbox tab "
-                "(sellbird dashboard → Outbox; A approve, E edit, R reject). "
-                "CLI: sellbird outbox. Edits invalidate the binding."
-            ),
+            "review": REVIEW_PATH,
         })
     return {"batches": out, "fields": BIND_FIELDS, "digest_fn": "sha256"}
 
 
+REVIEW_PATH = (
+    "This CLI prints the actual subject/body. Hashes alone are not the copy.\n"
+    "Custom web app harvey.dmtoclose.com (Harvey container, Cloudflare Access) is NOT "
+    "wired to the SSS GLM outbox. Do not treat upstream Sellbird/terminal Outbox as "
+    "that web UI. SSS is a separate container (localhost :5556). GLM drafts land in "
+    "harvey-sss /app/data/harvey.db outbox kind=harvey_mode status=pending_review.\n"
+    "Read copy: python /app/data/sss_glm_preview.py --show-copy  (inside harvey-sss).\n"
+    "Owner approve still uses whatever already flips those SSS outbox rows to approved; "
+    "this package does not add a dashboard. Status-only approve keeps the binding; "
+    "recipient/subject/body edits invalidate it."
+)
+
+
+def format_copy(doc: dict) -> str:
+    lines = [REVIEW_PATH, ""]
+    for batch in doc.get("batches") or []:
+        lines.append(f"batch {batch['batch_id']} ({batch['status']})")
+        for it in batch.get("items") or []:
+            lines.append("-" * 60)
+            lines.append(f"id={it['outbox_id']} status={it.get('status')} "
+                         f"binding_ok={it.get('matches_binding')} finding={it.get('finding')}")
+            lines.append(f"subject: {it.get('subject') or ''}")
+            lines.append("body:")
+            lines.append(it.get("body") or "")
+            lines.append("")
+    return "\n".join(lines)
+
+
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(description="Preview GLM batches (read-only).")
+    p = argparse.ArgumentParser(description="Preview GLM batches (read-only). Never approves or sends.")
     p.add_argument("--db", default="/app/data/harvey.db")
     p.add_argument("--batch", default="")
+    p.add_argument("--show-copy", action="store_true",
+                   help="Print subject and body, not only hashes.")
+    p.add_argument("--json", action="store_true", help="JSON even with --show-copy.")
     args = p.parse_args(argv)
     c = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
-    print(json.dumps(preview(c, args.batch or None), indent=2))
+    doc = preview(c, args.batch or None)
+    if args.show_copy and not args.json:
+        print(format_copy(doc))
+    else:
+        print(json.dumps(doc, indent=2))
     return 0
 
 

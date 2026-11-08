@@ -68,6 +68,21 @@ def _tools_empty(agent) -> bool:
     return proven
 
 
+def _isolation_kwargs(init):
+    """Pass only kwargs this AIAgent accepts. Required isolation must exist."""
+    import inspect
+    try:
+        names = set(inspect.signature(init).parameters)
+    except (TypeError, ValueError):
+        names = set(HERMES_KW)
+    required = ("enabled_toolsets", "skip_memory", "skip_context_files",
+                "save_trajectories", "fallback_model", "max_iterations", "max_tokens")
+    missing = [k for k in required if k not in names]
+    if missing:
+        raise ProtocolError("model_unavailable", "isolation_kwargs")
+    return {k: v for k, v in HERMES_KW.items() if k in names}
+
+
 class HermesRunner:
     """Official SDK in the Hermes container. Isolation is proven before generate()."""
 
@@ -87,7 +102,9 @@ class HermesRunner:
         except Exception as e:
             raise ProtocolError("model_unavailable", "sdk") from e
         try:
-            agent = AIAgent(**HERMES_KW)
+            agent = AIAgent(**_isolation_kwargs(AIAgent.__init__))
+        except ProtocolError:
+            raise
         except TypeError as e:
             raise ProtocolError("model_unavailable", "isolation_kwargs") from e
         if not _tools_empty(agent):

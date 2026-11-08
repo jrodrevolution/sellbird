@@ -109,3 +109,11 @@ def test_overlay_sender_still_calls_legacy_permission_then_glm_bind():
     assert "from sss_glm.bind import permitted as glm_permitted" in src
     assert src.index("legacy_permission") < src.index("glm_permitted")
     assert "in_send_window" in src and "9 <=" in src
+    assert "sss_glm_items" in src  # missing package must not freeze legacy 83
+
+
+def test_overlay_queue_uses_full_glm_email_not_opener_variant():
+    src = (OVERLAY / "sss_engine.py").read_text()
+    assert "d.subject" in src and "draft_email" in src
+    assert "record_item" in src and "record_poison" in src
+    assert "variant" not in src.split("def write_email", 1)[1].split("def check_rules", 1)[0]

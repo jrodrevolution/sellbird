@@ -66,8 +66,12 @@ def approve_batch(c, batch_id: str, *, apply: bool = False) -> dict:
         "would_approve_or_approved": released,
         "held": held,
         "review_ui": (
-            "Prefer the existing dashboard Outbox (sellbird dashboard → Outbox) "
-            "or `sellbird outbox --approve <id>`. This CLI is the same human step."
+            "GLM drafts sit in harvey-sss /app/data/harvey.db outbox "
+            "(kind=harvey_mode, pending_review). The custom web app at "
+            "harvey.dmtoclose.com is not wired to that table. Read copy with "
+            "`python /app/data/sss_glm_preview.py --show-copy`. Status-only "
+            "approve keeps the binding; edits invalidate it. Upstream Sellbird "
+            "Outbox is not the verified custom UI."
         ),
     }
 

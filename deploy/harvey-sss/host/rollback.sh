@@ -1,7 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # Rollback GLM overlay. Does not send mail, does not rewrite outbox rows,
-# does not touch DMTC, report job a79ca986e5d2, exporter, or Telegram.
+# does not touch DMTC, report job a79ca986e5d2, exporter, Telegram, or
+# container "harvey" (custom dashboard at harvey.dmtoclose.com).
 set -euo pipefail
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "run as root on the VPS" >&2
@@ -23,4 +24,4 @@ echo "Restored sss_engine.py and sss_spaced_send.py from pre-glm backups if pres
 echo "Recreate harvey-sss WITHOUT the /var/sss-glm mounts, keeping the original three mounts,"
 echo "image harvey-sss:v3, uid 1000, command sleep infinity."
 echo "Leave /opt/sss-glm-channel in place (unused) or root-archive it; do not delete /opt/harvey-sss/data."
-echo "Pending GLM drafts stay pending_review/held until Jose rejects them in Outbox."
+echo "Pending GLM drafts stay pending_review/held. Never recreate container harvey."

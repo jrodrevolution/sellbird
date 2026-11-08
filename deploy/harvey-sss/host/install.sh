@@ -18,25 +18,26 @@ if [[ -d "$REPO/sss_glm" ]]; then
   cp -a "$REPO/sss_glm/." "$STAGE/overlay/hermes/sss_glm/"
   cp "$HERE/overlay/hermes/worker_main.py" "$STAGE/overlay/hermes/sss_glm/worker_main.py"
 fi
-cp "$HERE/host/channel-layout.sh" "$HERE/host/rollback.sh" "$HERE/host/recreate-harvey-sss.snippet.sh" "$STAGE/"
+find "$STAGE" -type d -name '__pycache__' -exec rm -rf {} +
+find "$STAGE" -name '*.pyc' -delete
+cp "$HERE/README.md" "$HERE/SCOPE.md" "$STAGE/"
+mkdir -p "$STAGE/host"
+cp -a "$HERE/host/." "$STAGE/host/"
 cat > "$STAGE/COPY_TO_VPS.txt" <<'EOF'
-1. Back up, on the VPS, before any copy:
-     cp -a /opt/harvey-sss/data/sss_engine.py /opt/harvey-sss/data/sss_engine.py.pre-glm
-     cp -a /opt/harvey-sss/data/sss_spaced_send.py /opt/harvey-sss/data/sss_spaced_send.py.pre-glm
-     cp -a /opt/harvey-sss/data/legacy_permission.py /opt/harvey-sss/data/legacy_permission.py.pre-glm
-   Do not restore those from any older snapshot than this preservation/ copy.
-2. Copy overlay/data/*.py and overlay/data/sss_glm/ to /opt/harvey-sss/data/ (uid 1000).
-   Leave legacy_permission.py, legacy_release.py, legacy_validate.py as the
-   preservation copies (identical to current production).
-3. Copy overlay/hermes/sss_glm/ to the Hermes approved-scripts directory:
-     /opt/hermes/.hermes/scripts/approved/sss_glm/
-   inside hermes-agent (same place as the existing zero-tool GLM probe).
-4. Run channel-layout.sh as root.
-5. Recreate harvey-sss with the two extra mounts in recreate-harvey-sss.snippet.sh
-   PLUS the three existing mounts. Command remains sleep infinity, image harvey-sss:v3, uid 1000.
-6. Recreate or extra-mount hermes-agent: requests RO, responses RW, ledger RW.
-7. Install systemd/sss-glm-worker.{service,timer}. Do not change other timers/jobs.
-8. Verify: mounts, no keys in SSS, fixture request → pending_review, legacy 83 unchanged.
+Read SCOPE.md first. This overlay is harvey-sss worker files only.
+Do NOT docker cp or recreate container "harvey" (harvey.dmtoclose.com).
+Do NOT present Sellbird/terminal Outbox as the custom web UI.
+
+Preferred apply (dry-run, then files only, no recreate):
+  bash host/apply-vps.sh
+  bash host/apply-vps.sh --apply
+  bash host/verify-install.sh
+
+Channel mounts need a later recreate of harvey-sss and hermes-agent only:
+  SSS_GLM_CONFIRM_RECREATE=harvey-sss-only bash host/apply-vps.sh --apply --recreate
+Confirm first that any SSS localhost :5556 UI lives in the image or a volume.
+
+Never copy secrets. Never modify outbox rows. Never SMTP-test prospects.
 EOF
 echo "staged $STAGE"
 echo "This script did not contact Docker, SMTP, or production databases."

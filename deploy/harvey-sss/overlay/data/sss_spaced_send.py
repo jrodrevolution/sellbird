@@ -101,11 +101,19 @@ async def go():
         legacy_ok, legacy_reason = LP.permitted(c, oid)
         if not legacy_ok:
             c.execute("update outbox set status='held', error=? where id=?", (legacy_reason, oid)); c.commit(); continue
+        glm_ok, glm_reason = True, ""
         try:
             from sss_glm.bind import permitted as glm_permitted
             glm_ok, glm_reason = glm_permitted(c, oid)
         except Exception:
-            glm_ok, glm_reason = False, "glm binding guard unavailable; hold"
+            # Missing package must not freeze the frozen legacy 83. Only hold
+            # rows that already have a GLM binding row.
+            try:
+                if c.execute("select 1 from sqlite_master where type='table' and name='sss_glm_items'").fetchone() \
+                   and c.execute("select 1 from sss_glm_items where outbox_id=?", (oid,)).fetchone():
+                    glm_ok, glm_reason = False, "glm binding guard unavailable; hold"
+            except Exception:
+                glm_ok, glm_reason = True, ""
         if not glm_ok:
             c.execute("update outbox set status='held', error=? where id=?", (glm_reason, oid)); c.commit(); continue
         g=pre_send_check(em,subj,body,prospect=None,kind="harvey_mode")
