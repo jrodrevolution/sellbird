@@ -88,8 +88,9 @@ back, revert surgical dashboard backups. GLM rows stay pending_review/held.
 `pytest tests/test_sss_glm_*.py` — channel, approval binding, Engine-API
 recreate, process lifecycle, file launches without PYTHONPATH, owner
 edit→new hash→approve / old-hash replay blocked, Tijuana send stats
-(unavailable not 0), review API, Studio patch anchors. Hosts are
-`*.example`. No live DB, no SMTP.
+(unavailable not 0), review API, Studio patch anchors, fail-closed send
+guard (migration/read/unavailable DB held; verified frozen 83 still
+allowed). Hosts are `*.example`. No live DB, no SMTP.
 
 Runtime after parent apply (not claimed here): Access login, `/#sssglm`
 loads drafts and SSS send stats; `python3 /app/data/sss_glm/review_server.py`

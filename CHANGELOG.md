@@ -22,8 +22,9 @@ minor versions can still change behaviour.
   needs a new approve. SSS send stats (America/Tijuana, status=sent) sit
   on that page; Hermes 8PM reports stay independent. File launches insert
   the package parent so `python3 /app/data/sss_glm/review_server.py` works
-  without PYTHONPATH. See `deploy/harvey-sss/README.md` and
-  `deploy/harvey-sss/SCOPE.md`.
+  without PYTHONPATH. GLM send guards fail closed on migration/read/unavailable
+  DB; only frozen-manifest exact-hash legacy 83 may pass without a GLM row.
+  See `deploy/harvey-sss/README.md` and `deploy/harvey-sss/SCOPE.md`.
 
 ### Changed
 

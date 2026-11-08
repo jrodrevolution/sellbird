@@ -81,13 +81,18 @@ def test_poison_binding_blocks_later_approve():
     assert not ok and "unavailable" in why
 
 
-def test_missing_glm_tables_do_not_block_legacy():
+def test_missing_glm_row_is_not_a_send_allowance():
     import sqlite3
+    from sss_glm.bind import NOT_GLM, allow_send
     c = sqlite3.connect(":memory:")
     c.execute("create table outbox(id text, to_email text, subject text, body text, status text)")
     c.execute("insert into outbox values('leg1','a@law.example','s','b','approved')")
     ok, why = permitted(c, "leg1")
+    assert not ok and why == NOT_GLM
+    ok, why = allow_send(c, "leg1", in_legacy_manifest=True)
     assert ok and why == ""
+    ok, why = allow_send(c, "leg1", in_legacy_manifest=False)
+    assert not ok
 
 
 def test_preview_includes_copy_not_only_hashes(drafted):

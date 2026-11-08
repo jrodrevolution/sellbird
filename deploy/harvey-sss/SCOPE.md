@@ -58,6 +58,11 @@ The replacement:
    **Never `docker restart`**. Hermes PID1 is `/init` + wrapper; children
    are not docker-exec'd. Review :18765 starts only if empty.
 
+Send guard: GLM bind never returns allow on migration/read/unavailable DB.
+Non-legacy rows without a verified GLM hash are held. Frozen 83 may send
+only after `legacy_permission.permitted` exact-hash on the frozen manifest,
+not via a global True fallback.
+
 `--recreate` still requires `SSS_GLM_CONFIRM_RECREATE=harvey-sss-only`.
 Do not restart cloudflared, DMTC, or the independent Hermes report job
 except the hermes-agent container itself when adding channel mounts.

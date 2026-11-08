@@ -5,9 +5,11 @@ A GLM draft is stored with a SHA-256 of (outbox id, recipient, subject, body).
 Silent edits change that tuple, so send-time ``permitted`` fails closed.
 Owner edit through the review API writes a new hash and ``pending_review``
 so the new copy can be approved; it is not left permanently unsendable.
-Non-GLM rows (including the frozen legacy 83) are untouched:
-``permitted`` returns True so existing sender/legacy guards keep authority.
-Never auto-approves. Never covers new ids under the legacy permission.
+``permitted`` never fail-opens. Migration/read/unavailable-DB exceptions
+hold. A missing GLM row is ``not_glm`` (not a send allowance). Frozen
+legacy 83 may send only when the caller already verified the exact-hash
+manifest via ``legacy_permission.permitted`` and passes
+``in_legacy_manifest=True`` to ``allow_send``. Never auto-approves.
 """
 
 from __future__ import annotations
@@ -18,6 +20,8 @@ import uuid
 from datetime import datetime, timezone
 
 BIND_FIELDS = ("id", "to_email", "subject", "body")
+NOT_GLM = "not_glm"
+HOLD_UNAVAILABLE = "glm binding guard unavailable; hold"
 
 
 def migrate(c) -> None:
@@ -115,34 +119,62 @@ def record_poison(c, *, outbox_id: str, request_id: str, finding: str, domain: s
 
 
 def permitted(c, oid: str) -> tuple[bool, str]:
-    """Send-time guard.
+    """GLM send-time guard. Fail closed on every exception.
 
-    Non-GLM ids (including the frozen legacy 83) pass through so existing
-    sender/legacy guards stay in charge. GLM ids: status is *not* part of the
-    hash, so an owner approval that only flips pending_review → approved still
-    sends. Recipient/subject/body edits change the hash and hold.
+    A missing GLM row is NOT permission to send (``not_glm``). Frozen
+    legacy 83 is decided by ``allow_send(..., in_legacy_manifest=True)``
+    after ``legacy_permission.permitted`` verified the exact hash.
+    GLM ids: status is not part of the hash, so pending_review → approved
+    still matches. Silent recipient/subject/body edits change the hash and hold.
     """
     try:
         migrate(c)
-    except Exception:
-        return True, ""
-    try:
         item = c.execute(
             "select binding_sha256, batch_id from sss_glm_items where outbox_id=?", (oid,)
         ).fetchone()
     except Exception:
-        return True, ""
+        return False, HOLD_UNAVAILABLE
     if not item:
-        return True, ""  # not a GLM row; existing sender/legacy path
-    binding = item[0] if not hasattr(item, "keys") else item["binding_sha256"]
-    if binding == "invalid":
-        return False, "glm binding unavailable; hold"
-    row = current_row(c, oid)
-    if row is None:
-        return False, "glm item missing; hold"
-    if digest(row) != binding:
-        return False, "glm content changed; fresh preview required"
-    return True, ""
+        return False, NOT_GLM
+    try:
+        binding = item[0] if not hasattr(item, "keys") else item["binding_sha256"]
+        if not binding or binding == "invalid":
+            return False, "glm binding unavailable; hold"
+        row = current_row(c, oid)
+        if row is None:
+            return False, "glm item missing; hold"
+        if digest(row) != binding:
+            return False, "glm content changed; fresh preview required"
+        return True, ""
+    except Exception:
+        return False, HOLD_UNAVAILABLE
+
+
+def allow_send(c, oid: str, *, in_legacy_manifest: bool = False) -> tuple[bool, str]:
+    """Compose GLM bind with a separately verified frozen-manifest bit.
+
+    ``in_legacy_manifest`` must mean the oid is in the frozen 83 items map
+    AND ``legacy_permission.permitted`` already returned True (exact hash).
+    It is not a global fallback. Unverifiable non-legacy rows are held.
+    """
+    try:
+        ok, why = permitted(c, oid)
+    except Exception:
+        ok, why = False, HOLD_UNAVAILABLE
+    if ok:
+        return True, ""
+    if in_legacy_manifest and why in (NOT_GLM, HOLD_UNAVAILABLE):
+        return True, ""
+    if why == NOT_GLM:
+        return False, "unverifiable non-legacy; hold"
+    return False, why
+
+
+def allow_send_if_glm_import_failed(*, in_legacy_manifest: bool) -> tuple[bool, str]:
+    """When sss_glm cannot be imported or bind raises before a result."""
+    if in_legacy_manifest:
+        return True, ""
+    return False, HOLD_UNAVAILABLE
 
 
 def rebind_owner_edit(c, *, outbox_id: str, expected_hash: str,

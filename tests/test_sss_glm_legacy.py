@@ -39,13 +39,14 @@ def test_overlay_did_not_rewrite_legacy_permission_files():
 
 
 def test_legacy_unknown_id_is_not_auto_approved_by_glm_bind():
-    # Future/human rows: glm permitted() is a pass-through; legacy_permission
-    # itself returns True,'' for ids not in the frozen manifest (existing path).
+    from sss_glm.bind import NOT_GLM, allow_send
     c = sqlite3.connect(":memory:")
     c.execute("create table outbox(id text, to_email text, subject text, body text, status text, prospect_id text, sent_at text)")
     c.execute("insert into outbox values('new1','a@dental.example','s','b','pending_review','p','')")
     ok, why = glm_permitted(c, "new1")
-    assert ok and why == ""
+    assert not ok and why == NOT_GLM
+    ok, why = allow_send(c, "new1", in_legacy_manifest=False)
+    assert not ok
 
 
 def test_legacy_permission_hash_guard_on_fictional_frozen_row(tmp_path, monkeypatch):
@@ -73,11 +74,14 @@ def test_legacy_permission_hash_guard_on_fictional_frozen_row(tmp_path, monkeypa
     try:
         ok, why = LP.permitted(c, "leg1")
         assert ok, why
+        from sss_glm.bind import allow_send
+        ok_s, _ = allow_send(c, "leg1", in_legacy_manifest=True)
+        assert ok_s
+        ok_g, why_g = glm_permitted(c, "leg1")
+        assert not ok_g  # bind does not fail-open; LP exact-hash is the 83 authority
         c.execute("update outbox set body='mutated' where id='leg1'")
         ok, why = LP.permitted(c, "leg1")
         assert not ok and "changed" in why
-        ok_g, _ = glm_permitted(c, "leg1")
-        assert ok_g  # not a GLM row; legacy file remains the authority
     finally:
         if prev is None:
             sys.modules.pop("sss_engine", None)
@@ -106,10 +110,11 @@ def test_overlay_engine_does_not_template_fallback_for_new_drafts():
 def test_overlay_sender_still_calls_legacy_permission_then_glm_bind():
     src = (OVERLAY / "sss_spaced_send.py").read_text()
     assert "import legacy_permission as LP" in src
-    assert "from sss_glm.bind import permitted as glm_permitted" in src
-    assert src.index("legacy_permission") < src.index("glm_permitted")
+    assert "from sss_glm.bind import allow_send as glm_allow_send" in src
+    assert src.index("legacy_permission") < src.index("glm_allow_send")
     assert "in_send_window" in src and "9 <=" in src
-    assert "sss_glm_items" in src  # missing package must not freeze legacy 83
+    assert "in_legacy_manifest" in src
+    assert "glm_ok, glm_reason = True, \"\"" not in src
 
 
 def test_overlay_queue_uses_full_glm_email_not_opener_variant():

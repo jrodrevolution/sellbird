@@ -98,25 +98,28 @@ async def go():
         if U.PLACEHOLDER in body:
             c.execute("update outbox set status='failed', error=? where id=?", ("unsub placeholder", oid)); c.commit(); continue
         # Scoped pt3726u originals only: exact content hash + current daily cap + replies/dedupe.
+        import json
         import legacy_permission as LP
         legacy_ok, legacy_reason = LP.permitted(c, oid)
         if not legacy_ok:
             c.execute("update outbox set status='held', error=? where id=?", (legacy_reason, oid)); c.commit(); continue
-        glm_ok, glm_reason = True, ""
+        in_legacy_manifest = False
         try:
-            from sss_glm.bind import permitted as glm_permitted
-            glm_ok, glm_reason = glm_permitted(c, oid)
+            m = json.load(open(LP.PATH))
+            in_legacy_manifest = oid in (m.get("items") or {})
         except Exception:
-            # Missing package must not freeze the frozen legacy 83. Only hold
-            # rows that already have a GLM binding row.
+            in_legacy_manifest = False
+        try:
+            from sss_glm.bind import allow_send as glm_allow_send
+            glm_ok, glm_reason = glm_allow_send(c, oid, in_legacy_manifest=in_legacy_manifest)
+        except Exception:
+            from sss_glm.bind import allow_send_if_glm_import_failed
             try:
-                if c.execute("select 1 from sqlite_master where type='table' and name='sss_glm_items'").fetchone() \
-                   and c.execute("select 1 from sss_glm_items where outbox_id=?", (oid,)).fetchone():
-                    glm_ok, glm_reason = False, "glm binding guard unavailable; hold"
+                glm_ok, glm_reason = allow_send_if_glm_import_failed(in_legacy_manifest=in_legacy_manifest)
             except Exception:
-                glm_ok, glm_reason = True, ""
+                glm_ok, glm_reason = (True, "") if in_legacy_manifest else (False, "glm binding guard unavailable; hold")
         if not glm_ok:
-            c.execute("update outbox set status='held', error=? where id=?", (glm_reason, oid)); c.commit(); continue
+            c.execute("update outbox set status='held', error=? where id=?", (glm_reason or "unverifiable non-legacy; hold", oid)); c.commit(); continue
         g=pre_send_check(em,subj,body,prospect=None,kind="harvey_mode")
         if not g:
             c.execute("update outbox set status='failed', error=? where id=?", ("gate: "+", ".join(g.reasons), oid)); c.commit(); continue
