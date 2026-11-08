@@ -4,6 +4,7 @@ from email.message import EmailMessage
 from email.utils import make_msgid, formataddr
 import aiosmtplib
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0,"/app")
 sys.path.insert(0,"/app/data")
 from harvey.gate import pre_send_check

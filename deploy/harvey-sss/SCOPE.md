@@ -20,12 +20,21 @@ verified custom UI. SSS `:5556` is the SSS container dashboard, not Studio.
 ## Owner review (implemented in source; runtime unverified until parent deploys)
 
 - URL path: existing Access hostname `/#sssglm` (container `harvey`).
-- Full subject/body, outbox id, binding hash.
-- Approve and Reject only. Confirm phrases required. No send button.
-- Edits of recipient/subject/body invalidate the hash; send-time guard holds.
-- harvey does **not** mount harvey-sss SQLite. Preview/approve go over
+- Full subject/body, recipient, outbox id, binding hash.
+- Owner may **edit** subject/body. That clears approval, writes a **new**
+  immutable hash, sets `pending_review`, and needs a new explicit approve.
+  Editing does not make the row permanently unsendable. A stale hash
+  (concurrent edit or replay) is refused.
+- Approve and Reject the exact current copy. Confirm phrases required.
+  No send button. No blanket auto-approval.
+- SSS send stats on the same page: today / MTD / total with
+  `status=sent` in `America/Tijuana`. Held and pending counts. Source
+  timestamp. Query failures show **unavailable**, never a fake 0.
+  Does **not** replace the independent Hermes 8PM report (money/scans/Harvey).
+- harvey does **not** mount harvey-sss SQLite. Preview/approve/edit/stats go over
   internal docker network `sss-glm-review` (`--internal`, port 18765 not
   published) with a review token stored in each existing data dir.
+  Existing Access authentication on the dashboard is unchanged.
 
 ## Exact recreate (fixes the blocked dry-run)
 

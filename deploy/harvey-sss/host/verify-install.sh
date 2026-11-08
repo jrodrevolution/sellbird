@@ -24,8 +24,8 @@ if docker inspect harvey-sss >/dev/null 2>&1; then
   env=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' harvey-sss)
   echo "$env" | grep -qi OPENROUTER && bad "OPENROUTER present in SSS env"
   echo "$env" | grep -qi HERMES && say "NOTE: inspect SSS env for accidental Hermes keys"
-  docker exec -u 1000 harvey-sss python3 -c "import sss_glm.enqueue,sss_glm.bind; print('sss_glm import ok')" \
-    || bad "sss_glm not importable in SSS (need /app/data on path)"
+  docker exec -u 1000 -w /app/data harvey-sss python3 -c "import sss_glm.enqueue,sss_glm.bind,sss_glm.review_server; print('sss_glm import ok')" \
+    || bad "sss_glm not importable in SSS (need cwd /app/data; package is not on /app)"
 else
   say "NOTE: harvey-sss not running here; skip mount checks"
 fi
@@ -37,6 +37,9 @@ if docker inspect hermes-agent >/dev/null 2>&1; then
   echo "$hm" | grep -q '/var/sss-glm/ledger true' || say "NOTE: hermes ledger should be RW"
   docker exec -u hermes hermes-agent test -f /opt/hermes/.hermes/scripts/approved/sss_glm/worker_main.py \
     || bad "Hermes worker_main.py missing"
+  docker exec -u hermes -w /opt/hermes/.hermes/scripts/approved hermes-agent \
+    /opt/hermes/.venv/bin/python -c "import sss_glm.worker; print('worker import ok')" \
+    || bad "sss_glm.worker not importable in Hermes (need cwd .../scripts/approved)"
 else
   say "NOTE: hermes-agent not running here; skip Hermes checks"
 fi

@@ -25,7 +25,7 @@ def preview(c, batch_id: str | None = None) -> dict:
     else:
         batches = c.execute(
             "select id, created_at, preview_sha256, status from sss_glm_batches "
-            "order by created_at desc limit 5"
+            "order by created_at desc limit 25"
         ).fetchall()
     out = []
     for b in batches:
@@ -53,6 +53,7 @@ def preview(c, batch_id: str | None = None) -> dict:
                 "hold_reason": why,
             }
             if cur is not None:
+                item["to_email"] = cur[1]
                 item["subject"] = cur[2]
                 item["body"] = cur[3]
             items.append(item)
@@ -70,7 +71,9 @@ def preview(c, batch_id: str | None = None) -> dict:
 REVIEW_PATH = (
     "Owner review path (implemented in this overlay, runtime unverified until "
     "parent deploys): existing Access hostname /#sssglm on container harvey. "
-    "Full subject/body, ids and hashes. Approve/reject only; no send. "
+    "Full subject/body, ids and hashes. Owner may edit subject/body; that "
+    "clears approval, writes a new hash, and needs a new explicit approve. "
+    "Approve/reject the exact current copy; no send. "
     "harvey proxies to harvey-sss over an internal docker network. Separate "
     "SQLite files are not mounted across containers. Upstream Sellbird/terminal "
     "Outbox and SSS localhost :5556 are not this UI. Status-only approve keeps "

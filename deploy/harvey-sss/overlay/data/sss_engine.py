@@ -18,6 +18,9 @@ from collections import Counter
 from zoneinfo import ZoneInfo
 PT = ZoneInfo("America/Los_Angeles")
 DATA = "/app/data"; DB = DATA + "/harvey.db"
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 if DATA not in sys.path:
     sys.path.insert(0, DATA)
 SCAN_API = "https://sitesafetyscan.com/api/scan?url="

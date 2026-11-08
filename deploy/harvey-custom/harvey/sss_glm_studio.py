@@ -2,8 +2,9 @@
 """Narrow SSS GLM review proxy for the custom Harvey Studio dashboard.
 
 Talks to harvey-sss over the internal docker network. Does not open the SSS
-SQLite file. GET preview is read-only. Approve/reject require confirm phrases.
-No send route. Token stays on the server; it is never sent to the browser.
+SQLite file. GET preview/stats are read-only. Approve/reject/edit require
+confirm phrases. No send route. Token stays on the server; it is never sent
+to the browser. Existing dashboard auth (Access + this app) is unchanged.
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ def _call(method: str, path: str, payload: dict | None = None, query: str = "") 
         return 503, {
             "ok": False,
             "error": "review_token_missing",
+            "unavailable": True,
             "detail": "Parent must write the review token into both data dirs.",
         }
     url = REVIEW_URL.rstrip("/") + path + (("?" + query) if query else "")
@@ -53,16 +55,26 @@ def _call(method: str, path: str, payload: dict | None = None, query: str = "") 
         try:
             parsed = json.loads(e.read().decode("utf-8") or "{}")
         except Exception:
-            parsed = {"ok": False, "error": "upstream", "status": e.code}
+            parsed = {"ok": False, "error": "upstream", "status": e.code, "unavailable": True}
         return e.code, parsed
     except Exception as e:
-        return 502, {"ok": False, "error": "sss_unreachable", "detail": str(e)[:200]}
+        return 502, {
+            "ok": False, "error": "sss_unreachable", "unavailable": True,
+            "detail": str(e)[:200],
+            "sent_today": None, "sent_mtd": None, "sent_total": None,
+            "pending_review": None, "held": None,
+        }
 
 
 def register(app):
     @app.get("/api/sss-glm/preview")
     async def preview(batch_id: str = ""):
         code, doc = _call("GET", "/v1/preview", query=("batch_id=" + batch_id if batch_id else ""))
+        return JSONResponse(doc, status_code=code)
+
+    @app.get("/api/sss-glm/stats")
+    async def stats():
+        code, doc = _call("GET", "/v1/stats")
         return JSONResponse(doc, status_code=code)
 
     @app.post("/api/sss-glm/approve")
@@ -86,6 +98,19 @@ def register(app):
             return JSONResponse({"ok": False, "error": "confirm_required", "need": "reject"}, 400)
         code, doc = _call("POST", "/v1/reject", {
             "confirm": "reject",
+            "items": d.get("items") or [],
+        })
+        return JSONResponse(doc, status_code=code)
+
+    @app.post("/api/sss-glm/edit")
+    async def edit(request: Request):
+        d = await request.json()
+        if d.get("confirm") != "edit":
+            return JSONResponse({"ok": False, "error": "confirm_required", "need": "edit"}, 400)
+        if "send" in d:
+            return JSONResponse({"ok": False, "error": "send_forbidden"}, 400)
+        code, doc = _call("POST", "/v1/edit", {
+            "confirm": "edit",
             "items": d.get("items") or [],
         })
         return JSONResponse(doc, status_code=code)

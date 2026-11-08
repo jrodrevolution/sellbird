@@ -2,8 +2,10 @@
 """Immutable GLM batch preview/approval binding.
 
 A GLM draft is stored with a SHA-256 of (outbox id, recipient, subject, body).
-Edits change that tuple, so send-time ``permitted`` fails closed until the
-owner re-previews. Non-GLM rows (including the frozen legacy 83) are untouched:
+Silent edits change that tuple, so send-time ``permitted`` fails closed.
+Owner edit through the review API writes a new hash and ``pending_review``
+so the new copy can be approved; it is not left permanently unsendable.
+Non-GLM rows (including the frozen legacy 83) are untouched:
 ``permitted`` returns True so existing sender/legacy guards keep authority.
 Never auto-approves. Never covers new ids under the legacy permission.
 """
@@ -65,6 +67,11 @@ def record_item(c, *, outbox_id: str, request_id: str, to_email: str,
         "model, finding, domain, created_at) values(?,?,?,?,?,?,?,?)",
         (outbox_id, batch_id, request_id, binding, model, finding, domain, now),
     )
+    _refresh_batch_preview(c, batch_id)
+    return batch_id
+
+
+def _refresh_batch_preview(c, batch_id: str) -> str:
     rows = list(c.execute(
         "select outbox_id, binding_sha256 from sss_glm_items where batch_id=? order by outbox_id",
         (batch_id,),
@@ -72,8 +79,11 @@ def record_item(c, *, outbox_id: str, request_id: str, to_email: str,
     preview = hashlib.sha256(
         json.dumps([tuple(r) for r in rows], separators=(",", ":")).encode()
     ).hexdigest()
-    c.execute("update sss_glm_batches set preview_sha256=? where id=?", (preview, batch_id))
-    return batch_id
+    c.execute(
+        "update sss_glm_batches set preview_sha256=?, status='previewed' where id=?",
+        (preview, batch_id),
+    )
+    return preview
 
 
 def current_row(c, oid: str) -> dict | None:
@@ -133,6 +143,69 @@ def permitted(c, oid: str) -> tuple[bool, str]:
     if digest(row) != binding:
         return False, "glm content changed; fresh preview required"
     return True, ""
+
+
+def rebind_owner_edit(c, *, outbox_id: str, expected_hash: str,
+                      subject: str, body: str) -> dict:
+    """Owner edit of subject/body: new immutable hash, pending_review.
+
+    Clears an existing approval so the new copy cannot send until the owner
+    approves the new hash. Does not mark the row permanently unsendable.
+    Concurrent edits: expected_hash must match the stored binding.
+    Never sends. Never auto-approves. Sent rows are refused.
+    """
+    migrate(c)
+    glm = c.execute(
+        "select binding_sha256, batch_id from sss_glm_items where outbox_id=?",
+        (outbox_id,),
+    ).fetchone()
+    if not glm:
+        return {"ok": False, "error": "not_glm", "sent": False}
+    stored = glm[0] if not hasattr(glm, "keys") else glm["binding_sha256"]
+    batch_id = glm[1] if not hasattr(glm, "keys") else glm["batch_id"]
+    if not expected_hash or expected_hash != stored:
+        return {
+            "ok": False, "error": "concurrent_edit", "sent": False,
+            "outbox_id": outbox_id,
+        }
+    row = current_row(c, outbox_id)
+    if row is None:
+        return {"ok": False, "error": "missing", "sent": False}
+    if row["status"] == "sent":
+        return {"ok": False, "error": "already_sent", "sent": False}
+    subject = (subject or "").strip()
+    body = (body or "").strip()
+    if not subject or not body:
+        return {"ok": False, "error": "empty_copy", "sent": False}
+    new_hash = digest({
+        "id": row["id"], "to_email": row["to_email"],
+        "subject": subject, "body": body,
+    })
+    if new_hash == stored and row["status"] == "pending_review":
+        return {
+            "ok": True, "unchanged": True, "sent": False,
+            "outbox_id": outbox_id, "binding_sha256": stored,
+            "status": "pending_review", "batch_id": batch_id,
+        }
+    c.execute(
+        "update outbox set subject=?, body=?, status='pending_review', error=? where id=?",
+        (subject, body, "GLM owner edit; needs new approval", outbox_id),
+    )
+    c.execute(
+        "update sss_glm_items set binding_sha256=? where outbox_id=?",
+        (new_hash, outbox_id),
+    )
+    preview = _refresh_batch_preview(c, batch_id)
+    try:
+        c.commit()
+    except Exception:
+        pass
+    return {
+        "ok": True, "unchanged": False, "sent": False, "applied": True,
+        "outbox_id": outbox_id, "binding_sha256": new_hash,
+        "status": "pending_review", "batch_id": batch_id,
+        "preview_sha256": preview,
+    }
 
 
 def invalidate_if_mutated(c, oid: str) -> bool:

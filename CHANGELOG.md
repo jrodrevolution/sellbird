@@ -18,7 +18,11 @@ minor versions can still change behaviour.
   stay arrays. harvey/harvey-sss PID1 `sleep infinity` dashboards are
   captured and relaunched; `docker restart` is refused. Custom Studio gets
   a narrow SSS drafts page (`/#sssglm`) via an internal review API, not a
-  shared SQLite mount. See `deploy/harvey-sss/README.md` and
+  shared SQLite mount. Owner edit of subject/body writes a new hash and
+  needs a new approve. SSS send stats (America/Tijuana, status=sent) sit
+  on that page; Hermes 8PM reports stay independent. File launches insert
+  the package parent so `python3 /app/data/sss_glm/review_server.py` works
+  without PYTHONPATH. See `deploy/harvey-sss/README.md` and
   `deploy/harvey-sss/SCOPE.md`.
 
 ### Changed

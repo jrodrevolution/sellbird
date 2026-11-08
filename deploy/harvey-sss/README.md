@@ -21,9 +21,12 @@ Access login succeeds):
 
 1. Existing Access hostname (email code), container `harvey`.
 2. Studio nav **SSS drafts** → `/#sssglm`.
-3. Full copy, ids, hashes. Approve / Reject only. No send button.
+3. Full copy, ids, hashes. Owner can edit subject/body (new hash, approval
+   cleared, new explicit approve required). Approve / Reject the current
+   copy only. No send button. SSS sent today/MTD/total (Tijuana) on the
+   same page; Hermes 8PM money/scans/Harvey report is not duplicated.
 4. harvey proxies to harvey-sss over internal network `sss-glm-review`.
-   Databases stay separate.
+   Databases stay separate. Existing Access auth is unchanged.
 
 SSS localhost `:5556` and upstream Sellbird Outbox are **not** this UI.
 
@@ -83,6 +86,11 @@ back, revert surgical dashboard backups. GLM rows stay pending_review/held.
 ## Tests
 
 `pytest tests/test_sss_glm_*.py` — channel, approval binding, Engine-API
-recreate (Hermes Entrypoint array + SSS :5556 / three binds), process
-lifecycle (no `docker restart`), review API, Studio patch anchors. Hosts are
+recreate, process lifecycle, file launches without PYTHONPATH, owner
+edit→new hash→approve / old-hash replay blocked, Tijuana send stats
+(unavailable not 0), review API, Studio patch anchors. Hosts are
 `*.example`. No live DB, no SMTP.
+
+Runtime after parent apply (not claimed here): Access login, `/#sssglm`
+loads drafts and SSS send stats; `python3 /app/data/sss_glm/review_server.py`
+imports without PYTHONPATH (`verify-install.sh` uses `-w /app/data`).

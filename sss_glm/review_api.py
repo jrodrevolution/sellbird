@@ -9,7 +9,9 @@ import sqlite3
 from pathlib import Path
 
 from sss_glm.approve import approve_items, reject_items
+from sss_glm.bind import rebind_owner_edit
 from sss_glm.preview import preview
+from sss_glm.stats import sss_send_stats
 
 TOKEN_FILE = "/app/data/sss-glm-review.token"
 DB_PATH = "/app/data/harvey.db"
@@ -68,6 +70,18 @@ def handle(method: str, path: str, body: bytes, headers: dict, *,
             c.close()
         doc["sent"] = False
         return 200, doc
+    if method == "GET" and path in ("/v1/stats", "/stats"):
+        try:
+            c = _ro(db_path)
+            try:
+                doc = sss_send_stats(c)
+            finally:
+                c.close()
+        except Exception:
+            from sss_glm.stats import UNAVAILABLE
+            doc = dict(UNAVAILABLE)
+        doc["sent"] = False
+        return 200, doc
     if method != "POST":
         return 405, {"ok": False, "error": "method"}
     try:
@@ -93,4 +107,26 @@ def handle(method: str, path: str, body: bytes, headers: dict, *,
         finally:
             c.close()
         return 200, out
+    if path in ("/v1/edit", "/edit"):
+        if payload.get("confirm") != "edit":
+            return 400, {"ok": False, "error": "confirm_required", "need": "edit"}
+        if not items:
+            return 400, {"ok": False, "error": "items_required", "sent": False}
+        c = _rw(db_path)
+        try:
+            results = []
+            for it in items:
+                out = rebind_owner_edit(
+                    c,
+                    outbox_id=(it or {}).get("outbox_id") or "",
+                    expected_hash=(it or {}).get("binding_sha256") or "",
+                    subject=(it or {}).get("subject") or "",
+                    body=(it or {}).get("body") or "",
+                )
+                results.append(out)
+            c.commit()
+        finally:
+            c.close()
+        ok = all(r.get("ok") for r in results)
+        return 200, {"ok": ok, "sent": False, "results": results}
     return 404, {"ok": False, "error": "not_found"}

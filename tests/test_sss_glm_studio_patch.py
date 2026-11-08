@@ -51,9 +51,14 @@ def test_studio_proxy_has_no_send_route():
     assert "/api/sss-glm/preview" in src
     assert "/api/sss-glm/approve" in src
     assert "/api/sss-glm/reject" in src
+    assert "/api/sss-glm/edit" in src
+    assert "/api/sss-glm/stats" in src
     assert "/api/sss-glm/send" not in src
     assert "send_forbidden" in src
     js = STUDIO_JS.read_text()
     assert "No send button" in js or "no send" in js.lower()
     assert "/api/sss-glm/send" not in js
     assert "confirm: 'approve'" in js
+    assert "confirm: 'edit'" in js
+    assert "unavailable" in js
+    assert "Hermes" in js

@@ -12,10 +12,12 @@ import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# /app/data is on sys.path in production overlay.
-HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, os.path.dirname(HERE))
+# File launch (systemd/lifecycle): python3 /app/data/sss_glm/review_server.py
+# puts THIS directory on sys.path, which cannot import the sss_glm package.
+# The package parent (/app/data) must be on sys.path. Check the parent, not HERE.
+_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PARENT not in sys.path:
+    sys.path.insert(0, _PARENT)
 
 from sss_glm.review_api import DB_PATH, TOKEN_FILE, handle, load_token
 

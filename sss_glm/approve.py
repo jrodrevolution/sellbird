@@ -20,7 +20,9 @@ REVIEW_UI = (
     "hostname (container harvey). GLM rows stay in harvey-sss SQLite; harvey "
     "proxies preview/approve/reject over an internal docker network with a "
     "review token. Upstream Sellbird/terminal Outbox is not this UI. "
-    "Status-only approve keeps the binding; recipient/subject/body edits hold."
+    "Status-only approve keeps the binding. Owner edit of subject/body "
+    "writes a new hash, sets pending_review, and needs a new explicit "
+    "approve. Silent outbox edits without that rebind still hold."
 )
 
 
