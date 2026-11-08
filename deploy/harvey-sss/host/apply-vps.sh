@@ -27,7 +27,9 @@ for arg in "$@"; do
       cat <<'EOF'
 apply-vps.sh [--apply] [--recreate] [--enable-timer]
   --apply          copy overlay files (with backups). default is dry-run.
-  --recreate       after copy, recreate harvey-sss and hermes-agent mounts.
+  --recreate       after copy, Engine-API recreate harvey-sss and hermes-agent
+                   (full Entrypoint array; PID1 sleep infinity dashboards
+                   are captured and relaunched; never docker restart harvey).
   --enable-timer   install/start sss-glm-worker.timer (does not send).
 Never pass secrets. Does not modify outbox rows or recipient manifests.
 EOF
@@ -148,7 +150,12 @@ if [[ "$ENABLE_TIMER" -eq 1 ]]; then
   systemctl daemon-reload
   systemctl enable --now sss-glm-worker.timer
   if [[ -f /etc/systemd/system/sss-glm-review.service ]]; then
-    systemctl enable --now sss-glm-review.service
+    systemctl enable sss-glm-review.service
+    if python3 "$HERE/reload_process.py" listening harvey-sss --port 18765 >/dev/null 2>&1; then
+      echo "review already listening; not starting a second sss-glm-review"
+    else
+      systemctl start sss-glm-review.service
+    fi
   fi
 fi
 

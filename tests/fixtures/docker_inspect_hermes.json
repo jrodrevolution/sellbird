@@ -10,7 +10,7 @@
       "HOME=/home/hermes"
     ],
     "Cmd": ["gateway", "run"],
-    "Entrypoint": ["/opt/hermes/.venv/bin/hermes"],
+    "Entrypoint": ["/init", "/opt/hermes/docker/main-wrapper.sh"],
     "Image": "nousresearch/hermes-agent:v2026.7.20",
     "WorkingDir": "/opt/hermes",
     "Labels": {

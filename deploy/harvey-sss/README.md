@@ -40,13 +40,14 @@ sends.
 bash host/apply-vps.sh
 bash host/apply-vps.sh --apply
 
-# 2. Studio SSS drafts (no recreate of harvey)
+# 2. Studio SSS drafts (no recreate / no docker restart of harvey)
 bash host/apply-dashboard.sh
 bash host/apply-dashboard.sh --apply --reload-dashboard
 
-# 3. Exact-config recreate of harvey-sss and hermes-agent ONLY, after
-#    confirming dry-run JSON still lists 127.0.0.1:5556, /opt/data,
-#    lobodesk-proxy, entrypoint, labels, health.
+# 3. Engine-API recreate of harvey-sss and hermes-agent ONLY, after
+#    confirming dry-run JSON still lists 127.0.0.1:5556, Hermes
+#    Entrypoint ["/init","/opt/hermes/docker/main-wrapper.sh"] +
+#    Cmd ["gateway","run"], /opt/data, lobodesk-proxy.
 SSS_GLM_CONFIRM_RECREATE=harvey-sss-only bash host/apply-vps.sh --apply --recreate
 
 # 4. Channel worker + internal review HTTP (no host publish of 18765)
@@ -57,6 +58,8 @@ bash host/verify-install.sh
 
 Step 3 snapshots writable layers, keeps `<name>.pre-glm` stopped, and fail-
 closes on config drift. Skip it until the dry-run plan matches production.
+PID1 `sleep infinity` dashboards are captured and relaunched; Hermes `/init`
+is not given extra workers. Do not `docker restart harvey`.
 
 Do not restart cloudflared. Do not SMTP-test prospects.
 
@@ -79,6 +82,7 @@ back, revert surgical dashboard backups. GLM rows stay pending_review/held.
 
 ## Tests
 
-`pytest tests/test_sss_glm_*.py` — channel, approval binding, exact recreate
-fixtures (ports/volumes/networks/entrypoint/labels/health), review API, Studio
-patch anchors. Hosts are `*.example`. No live DB, no SMTP.
+`pytest tests/test_sss_glm_*.py` — channel, approval binding, Engine-API
+recreate (Hermes Entrypoint array + SSS :5556 / three binds), process
+lifecycle (no `docker restart`), review API, Studio patch anchors. Hosts are
+`*.example`. No live DB, no SMTP.

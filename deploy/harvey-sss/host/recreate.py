@@ -33,11 +33,13 @@ from sss_glm.docker_exact import (  # noqa: E402
     allowed_target,
     blockers,
     compare_fingerprints,
-    create_argv,
+    create_body,
+    engine_api_create,
     extra_mounts_for,
     fingerprint,
     networks_from_inspect,
     public_plan,
+    redact_create_body,
     redact_inspect,
     write_env_file,
 )
@@ -84,12 +86,32 @@ def apply_recreate(name: str, info: dict, *, stamp: str | None = None) -> dict:
     if os.path.exists(env_path):
         os.remove(env_path)
     write_env_file(info, env_path)
+    saved_procs = None
+    from sss_glm.process_lifecycle import capture as cap_procs, one_listener
+    try:
+        saved_procs = cap_procs(name)
+        proc_path = os.path.join(snap_dir, f"{name}.procs.json")
+        with open(proc_path, "w", encoding="utf-8") as fh:
+            json.dump(saved_procs, fh, indent=2)
+            fh.write("\n")
+        os.chmod(proc_path, 0o600)
+    except SystemExit as exc:
+        if name == SSS_NAME:
+            raise
+        saved_procs = {"container": name, "capture_error": str(exc)[:300]}
+    if name == SSS_NAME:
+        one_listener(saved_procs, 5555)
     image = snapshot_image_name(name, stamp)
     _run(["docker", "commit", name, image])
     tmp_name = f"{name}.glmnew"
-    argv = create_argv(tmp_name, info, image=image, env_file=env_path, extra=extra)
+    body = create_body(tmp_name, info, image=image, extra=extra)
+    body_path = os.path.join(snap_dir, f"{name}.create.json")
+    with open(body_path, "w", encoding="utf-8") as fh:
+        json.dump(redact_create_body(body), fh)
+        fh.write("\n")
+    os.chmod(body_path, 0o600)
     subprocess.run(["docker", "rm", "-f", tmp_name], check=False, capture_output=True)
-    _run(argv)
+    engine_api_create(tmp_name, body)
     nets = networks_from_inspect(info)
     for net in nets["extra"]:
         cmd = ["docker", "network", "connect"]
@@ -112,6 +134,18 @@ def apply_recreate(name: str, info: dict, *, stamp: str | None = None) -> dict:
         subprocess.run(["docker", "rename", pre, name], check=False)
         subprocess.run(["docker", "start", name], check=False)
         raise SystemExit("post-recreate compare failed: " + "; ".join(reasons))
+    launched = None
+    if name == SSS_NAME and saved_procs:
+        from sss_glm.process_lifecycle import relaunch_if_sleep_pid1, start_review_server
+        launched = {
+            "dashboard": relaunch_if_sleep_pid1(name, saved_procs),
+            "review": start_review_server(name),
+        }
+    elif name == HERMES_NAME:
+        launched = {
+            "note": "PID1 is image Entrypoint (/init + wrapper); children not relaunched",
+            "pid1": (saved_procs or {}).get("pid1"),
+        }
     return {
         "applied": True,
         "name": name,
@@ -119,6 +153,10 @@ def apply_recreate(name: str, info: dict, *, stamp: str | None = None) -> dict:
         "original_stopped": pre,
         "snapshot_dir": snap_dir,
         "compare": "ok",
+        "process": launched,
+        "docker_restart": False,
+        "entrypoint": list((info.get("Config") or {}).get("Entrypoint") or []),
+        "cmd": list((info.get("Config") or {}).get("Cmd") or []),
     }
 
 
@@ -136,13 +174,11 @@ def main(argv=None) -> int:
     else:
         info = inspect_live(args.target)
     extra = extra_mounts_for(args.target)
-    argv_create = create_argv(
+    body = create_body(
         args.target + ".glmnew", info,
-        image="sss-glm-snap/dry-run:local",
-        env_file="/root/sss-glm-snapshots/dry-run.env",
-        extra=extra,
+        image="sss-glm-snap/dry-run:local", extra=extra,
     )
-    plan = public_plan(args.target, info, extra, argv_create)
+    plan = public_plan(args.target, info, extra, body=body)
     print(json.dumps(plan, indent=2))
     if plan["blockers"]:
         print("# blockers; refuse --apply", file=sys.stderr)

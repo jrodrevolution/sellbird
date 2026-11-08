@@ -304,120 +304,111 @@ def ns_to_duration(ns: int | None) -> str | None:
     return f"{int(ms)}ms"
 
 
-def create_argv(name: str, info: dict, *, image: str, env_file: str | None,
-                extra: tuple[dict, ...]) -> list[str]:
-    """docker create argv that preserves inspect HostConfig/Config."""
+def api_mounts(mounts: list[dict]) -> list[dict]:
+    """Engine API HostConfig.Mounts (Target, not Destination)."""
+    out = []
+    for m in mounts:
+        spec = {
+            "Type": m["Type"],
+            "Target": m["Destination"],
+            "ReadOnly": not m["RW"],
+        }
+        if m["Type"] != "tmpfs":
+            spec["Source"] = m["Source"]
+        if m["Type"] == "bind" and m.get("Propagation"):
+            spec["BindOptions"] = {"Propagation": m["Propagation"]}
+        out.append(spec)
+    return out
+
+
+def create_body(name: str, info: dict, *, image: str, extra: tuple[dict, ...]) -> dict:
+    """POST /containers/create body. Full Entrypoint array + Cmd, never flattened.
+
+    Docker CLI ``--entrypoint`` only takes the executable. The Engine API
+    documents Entrypoint as a string array, which is required for
+    ``['/init', '/opt/hermes/docker/main-wrapper.sh']``.
+    """
     allowed_target(name)
     cfg = info.get("Config") or {}
-    host = info.get("HostConfig") or {}
-    argv = ["docker", "create", "--name", name]
-    user = cfg.get("User")
-    if user:
-        argv += ["--user", user]
-    if cfg.get("WorkingDir"):
-        argv += ["--workdir", cfg["WorkingDir"]]
-    if cfg.get("Hostname"):
-        argv += ["--hostname", cfg["Hostname"]]
-    nets = networks_from_inspect(info)
-    argv += ["--network", nets["primary"]]
-    for als in nets["aliases"].get(nets["primary"]) or []:
-        if als and als != name:
-            argv += ["--network-alias", als]
-    rp = (host.get("RestartPolicy") or {}).get("Name") or ""
-    if rp and rp not in ("no", ""):
-        argv += ["--restart", rp]
-        mx = (host.get("RestartPolicy") or {}).get("MaximumRetryCount") or 0
-        if rp == "on-failure" and mx:
-            argv[-1] = f"on-failure:{mx}"
-    if host.get("Privileged"):
-        argv.append("--privileged")
-    for cap in host.get("CapAdd") or []:
-        argv += ["--cap-add", cap]
-    for cap in host.get("CapDrop") or []:
-        argv += ["--cap-drop", cap]
-    for opt in host.get("SecurityOpt") or []:
-        argv += ["--security-opt", opt]
-    for spec in port_publishes(info):
-        argv += ["-p", spec]
-    if host.get("PublishAllPorts"):
-        argv.append("-P")
-    if host.get("ReadonlyRootfs"):
-        argv.append("--read-only")
-    if host.get("Init"):
-        argv.append("--init")
-    if host.get("Runtime"):
-        argv += ["--runtime", host["Runtime"]]
-    if host.get("PidMode"):
-        argv += ["--pid", host["PidMode"]]
-    if host.get("IpcMode"):
-        argv += ["--ipc", host["IpcMode"]]
-    if host.get("UTSMode"):
-        argv += ["--uts", host["UTSMode"]]
-    if host.get("ShmSize"):
-        argv += ["--shm-size", str(host["ShmSize"])]
-    if host.get("Memory"):
-        argv += ["--memory", str(host["Memory"])]
-    if host.get("NanoCpus"):
-        argv += ["--cpus", str(int(host["NanoCpus"]) / 1_000_000_000)]
-    if host.get("CpuShares"):
-        argv += ["--cpu-shares", str(host["CpuShares"])]
-    for hst in host.get("ExtraHosts") or []:
-        argv += ["--add-host", hst]
-    for g in host.get("GroupAdd") or []:
-        argv += ["--group-add", str(g)]
-    for k, v in (host.get("Sysctls") or {}).items():
-        argv += ["--sysctl", f"{k}={v}"]
-    for u in host.get("Ulimits") or []:
-        argv += ["--ulimit", f"{u.get('Name')}={u.get('Soft')}:{u.get('Hard')}"]
-    log = host.get("LogConfig") or {}
-    if log.get("Type") and (log.get("Type") != "json-file" or _set(log.get("Config"))):
-        argv += ["--log-driver", log["Type"]]
-        for k, v in (log.get("Config") or {}).items():
-            argv += ["--log-opt", f"{k}={v}"]
-    labels = cfg.get("Labels") or {}
-    for k, v in labels.items():
-        argv += ["--label", f"{k}={v}"]
-    health = cfg.get("Healthcheck") or {}
-    test = list(health.get("Test") or [])
-    if test and test[0] != "NONE":
-        cmd = " ".join(test[1:]) if test[0] in ("CMD-SHELL", "CMD") else " ".join(test)
-        argv += ["--health-cmd", cmd]
-        if health.get("Interval"):
-            argv += ["--health-interval", ns_to_duration(health["Interval"])]
-        if health.get("Timeout"):
-            argv += ["--health-timeout", ns_to_duration(health["Timeout"])]
-        if health.get("Retries"):
-            argv += ["--health-retries", str(health["Retries"])]
-        if health.get("StartPeriod"):
-            argv += ["--health-start-period", ns_to_duration(health["StartPeriod"])]
+    host_in = info.get("HostConfig") or {}
+    host = {k: deepcopy(v) for k, v in host_in.items() if k in SUPPORTED_HOSTCONFIG}
     ep = cfg.get("Entrypoint")
-    if ep:
-        argv += ["--entrypoint", ep[0]]
-        # remaining entrypoint args go before image as we cannot split cleanly;
-        # docker --entrypoint takes the executable only; extra args belong in Cmd.
-        # If entrypoint has extra args, fail closed.
-        if len(ep) > 1:
-            raise SystemExit(f"multi-arg Entrypoint not reproduced: {ep!r}")
-    if env_file:
-        argv += ["--env-file", env_file]
-    for m in add_mounts(mounts_from_inspect(info), extra):
-        parts = [f"type={m['Type']}", f"destination={m['Destination']}"]
-        if m["Type"] != "tmpfs":
-            parts.append(f"source={m['Source']}")
-        if not m["RW"]:
-            parts.append("readonly")
-        if m["Type"] == "bind" and m.get("Propagation"):
-            parts.append(f"bind-propagation={m['Propagation']}")
-        argv += ["--mount", ",".join(parts)]
-    argv.append(image)
+    if ep is None:
+        entrypoint = None
+    else:
+        entrypoint = list(ep)
     cmd = list(cfg.get("Cmd") or [])
-    if ep and len(ep) > 1:
-        argv += ep[1:]
-    argv += cmd
-    return argv
+    mounts = api_mounts(add_mounts(mounts_from_inspect(info), extra))
+    host.pop("Binds", None)
+    host["Mounts"] = mounts
+    nets = networks_from_inspect(info)
+    aliases = [a for a in (nets["aliases"].get(nets["primary"]) or []) if a]
+    body = {
+        "Hostname": cfg.get("Hostname") or "",
+        "User": cfg.get("User") or "",
+        "Env": list(cfg.get("Env") or []),
+        "Cmd": cmd,
+        "Entrypoint": entrypoint,
+        "Image": image,
+        "WorkingDir": cfg.get("WorkingDir") or "",
+        "Labels": dict(cfg.get("Labels") or {}),
+        "StopSignal": cfg.get("StopSignal") or "",
+        "ExposedPorts": dict(cfg.get("ExposedPorts") or {}),
+        "HostConfig": host,
+        "NetworkingConfig": {
+            "EndpointsConfig": {
+                nets["primary"]: {"Aliases": aliases},
+            }
+        },
+    }
+    health = cfg.get("Healthcheck")
+    if health:
+        body["Healthcheck"] = health
+    return body
 
 
-def public_plan(name: str, info: dict, extra: tuple[dict, ...], argv: list[str]) -> dict:
+def redact_create_body(body: dict) -> dict:
+    data = deepcopy(body)
+    data["Env"] = [e.split("=", 1)[0] for e in (data.get("Env") or [])]
+    return data
+
+
+def engine_api_create(name: str, body: dict, *, sock: str = "/var/run/docker.sock") -> str:
+    """Create a container via the Docker Engine API unix socket. Returns Id."""
+    import socket
+    from http.client import HTTPConnection
+
+    class UnixHTTPConnection(HTTPConnection):
+        def __init__(self, path: str):
+            super().__init__("localhost")
+            self._path = path
+
+        def connect(self):
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(self._path)
+
+    from urllib.parse import quote
+
+    raw = json.dumps(body).encode("utf-8")
+    conn = UnixHTTPConnection(sock)
+    try:
+        conn.request(
+            "POST",
+            "/v1.41/containers/create?name=" + quote(name, safe=""),
+            body=raw,
+            headers={"Content-Type": "application/json", "Content-Length": str(len(raw))},
+        )
+        resp = conn.getresponse()
+        payload = resp.read().decode("utf-8")
+        if resp.status not in (201, 200):
+            raise SystemExit(f"engine API create {resp.status}: {payload[:500]}")
+        return json.loads(payload).get("Id") or ""
+    finally:
+        conn.close()
+
+
+def public_plan(name: str, info: dict, extra: tuple[dict, ...],
+                argv: list[str] | None = None, body: dict | None = None) -> dict:
     fp = fingerprint(info)
     return {
         "name": name,
@@ -445,7 +436,9 @@ def public_plan(name: str, info: dict, extra: tuple[dict, ...], argv: list[str])
         "cap_drop": fp["cap_drop"],
         "env_keys": env_keys(info),
         "blockers": blockers(name, info),
-        "docker_create_redacted": _redact_argv(argv),
+        "create_method": "engine-api",
+        "engine_api_redacted": redact_create_body(body) if body else None,
+        "docker_create_redacted": _redact_argv(argv or []),
         "writable_layer": "docker commit snapshot of current container; original kept stopped as .pre-glm",
     }
 

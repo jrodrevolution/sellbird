@@ -31,16 +31,23 @@ verified custom UI. SSS `:5556` is the SSS container dashboard, not Studio.
 
 Approximate `docker run` dropped localhost `:5556`, Hermes anonymous
 `/opt/data`, `lobodesk-proxy`, writable-layer files, entrypoint, security
-opts, capabilities, labels, health, and other HostConfig. The replacement:
+opts, capabilities, labels, health, and other HostConfig. CLI
+`--entrypoint` only takes one executable, so Hermes
+`['/init','/opt/hermes/docker/main-wrapper.sh']` cannot be flattened.
+The replacement:
 
 1. `docker commit` writable layer to `sss-glm-snap/<name>:<stamp>`
-2. `docker create` from that snapshot with **all** inspect mounts, ports,
-   networks/aliases, entrypoint/cmd, health, labels, security, caps
+2. Docker Engine API `POST /v1.41/containers/create` with the **full**
+   Entrypoint array and Cmd (never a single-string `--entrypoint`)
 3. Keep original stopped as `<name>.pre-glm` (not removed)
 4. Pre/post fingerprint compare; on mismatch, swap original back and fail
 5. Unsupported non-default HostConfig keys fail closed before any rename
-6. Secret-bearing inspect is written only under `/root/sss-glm-snapshots`
-   (0600). Public dry-run prints redacted env keys only.
+6. Secret-bearing inspect/env is written only under `/root/sss-glm-snapshots`
+   (0600). Public dry-run prints redacted env keys and the Entrypoint array.
+7. harvey and harvey-sss PID1 is `sleep infinity`. Recreate/reload captures
+   the :5555 listener (argv/cwd/uid, no environ) and relaunches that argv.
+   **Never `docker restart`**. Hermes PID1 is `/init` + wrapper; children
+   are not docker-exec'd. Review :18765 starts only if empty.
 
 `--recreate` still requires `SSS_GLM_CONFIRM_RECREATE=harvey-sss-only`.
 Do not restart cloudflared, DMTC, or the independent Hermes report job
@@ -76,4 +83,5 @@ docker network sss-glm-review (internal)
 
 Forbidden: wholesale replace of studio/home/dashboard; shared SQLite;
 publishing 18765; copying OpenRouter/SMTP keys; outbox SMTP tests;
-container recreate of `harvey` or `harvey-cloudflared`.
+container recreate of `harvey` or `harvey-cloudflared`; `docker restart`
+of harvey or harvey-sss (kills the separately launched dashboard).

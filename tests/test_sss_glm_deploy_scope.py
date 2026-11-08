@@ -58,6 +58,10 @@ def test_dashboard_script_is_surgical():
     text = DASH.read_text()
     assert "sss_glm_studio.py" in text
     assert "Never recreates container harvey" in text
+    assert not any(
+        ln.strip().startswith("docker restart") for ln in text.splitlines()
+    )
+    assert "reload_process.py" in text
     assert "18765" in text
     assert "sss_glm_studio.js" in text
 

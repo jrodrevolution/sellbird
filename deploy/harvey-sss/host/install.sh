@@ -34,9 +34,11 @@ Read SCOPE.md first.
    bash host/apply-vps.sh --apply
 2. bash host/apply-dashboard.sh
    bash host/apply-dashboard.sh --apply --reload-dashboard
-   (new Studio files + two anchors only; does not recreate harvey)
-3. Recreate only after dry-run JSON keeps 127.0.0.1:5556, Hermes /opt/data,
-   lobodesk-proxy, entrypoint, labels, health:
+   (new Studio files + two anchors only; does not recreate or docker restart
+   harvey. Captures :5555 and scoped-relaunches that argv.)
+3. Recreate only after dry-run JSON keeps 127.0.0.1:5556, Hermes
+   Entrypoint ["/init","/opt/hermes/docker/main-wrapper.sh"] + Cmd
+   ["gateway","run"], /opt/data, lobodesk-proxy:
    SSS_GLM_CONFIRM_RECREATE=harvey-sss-only bash host/apply-vps.sh --apply --recreate
 4. bash host/apply-vps.sh --apply --enable-timer
 5. bash host/verify-install.sh
@@ -44,6 +46,7 @@ Read SCOPE.md first.
 Owner review path after deploy: Access hostname /#sssglm
 SSS :5556 and Sellbird/terminal Outbox are not that UI.
 Never copy secrets. Never SMTP-test prospects. Never recreate harvey from scratch.
+Never docker restart harvey or harvey-sss (PID1 is sleep infinity).
 EOF
 echo "staged $STAGE"
 echo "This script did not contact Docker, SMTP, or production databases."
